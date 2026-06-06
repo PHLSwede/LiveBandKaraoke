@@ -1,5 +1,9 @@
 import { useState, useEffect } from "react";
 
+const SUPABASE_URL = process.env.REACT_APP_SUPABASE_URL;
+const SUPABASE_KEY = process.env.REACT_APP_SUPABASE_KEY;
+
+
 
 
 
