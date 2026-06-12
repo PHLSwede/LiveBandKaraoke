@@ -47,9 +47,9 @@ const css = `
 export default function StageDisplay() {
   const [nowPlaying, setNowPlaying] = useState(null);
   const [nextUp, setNextUp] = useState(null);
-  const [transpose, setTranspose] = useState(0);
-  const [autoScroll, setAutoScroll] = useState(false);
-  const [scrollSpeed, setScrollSpeed] = useState(35);
+  const [transpose] = useState(0); // eslint-disable-line no-unused-vars
+  const [autoScroll, setAutoScroll] = useState(false); // eslint-disable-line no-unused-vars
+  const [scrollSpeed, setScrollSpeed] = useState(35); // eslint-disable-line no-unused-vars
   const contentRef = useRef(null);
   const animRef = useRef(null);
   const posRef = useRef(0);
