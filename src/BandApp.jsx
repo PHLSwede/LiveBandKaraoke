@@ -328,48 +328,75 @@ function BullpenCard({ req, position, eventId, onAddedToQueue }) {
       const nextPos = existing && existing.length > 0
         ? Math.max(...existing.map(i => i.position)) + 1 : 0;
 
-      // Insert single queue row (no array wrapper)
+      // Insert queue row
+      const payload = {
+        request_id: req.id,
+        event_id: eventId,
+        singer_name: req.singer_name,
+        song_id: Number(selectedSong.song_id),
+        song_title: selectedSong.song_title,
+        song_artist: selectedSong.song_artist,
+        song_key: selectedSong.song_key,
+        song_genre: selectedSong.song_genre || "",
+        position: nextPos,
+        status: "queued",
+      };
+
+      console.log("Inserting queue payload:", payload);
+
       const inserted = await sbFetch("/queue", {
         method: "POST",
-        body: JSON.stringify({
-          request_id: req.id,
-          event_id: eventId,
-          singer_name: req.singer_name,
-          song_id: selectedSong.song_id,
-          song_title: selectedSong.song_title,
-          song_artist: selectedSong.song_artist,
-          song_key: selectedSong.song_key,
-          song_genre: selectedSong.song_genre,
-          position: nextPos,
-          status: "queued",
-        }),
+        body: JSON.stringify(payload),
       });
 
       console.log("Queue insert result:", inserted);
 
-      // Delete from bullpen — this also triggers singer status update via checkStatus
-      await sbFetch(`/request_songs?request_id=eq.${req.id}`, {
-        method: "DELETE", headers: { "Prefer": "" }
+      // Delete request_songs first (foreign key), then request
+      const delSongs = await fetch(`${SUPABASE_URL}/rest/v1/request_songs?request_id=eq.${req.id}`, {
+        method: "DELETE",
+        headers: {
+          "apikey": SUPABASE_KEY,
+          "Authorization": `Bearer ${SUPABASE_KEY}`,
+          "Content-Type": "application/json",
+        },
       });
-      await sbFetch(`/requests?id=eq.${req.id}`, {
-        method: "DELETE", headers: { "Prefer": "" }
+      console.log("Delete request_songs status:", delSongs.status);
+
+      const delReq = await fetch(`${SUPABASE_URL}/rest/v1/requests?id=eq.${req.id}`, {
+        method: "DELETE",
+        headers: {
+          "apikey": SUPABASE_KEY,
+          "Authorization": `Bearer ${SUPABASE_KEY}`,
+          "Content-Type": "application/json",
+        },
       });
+      console.log("Delete request status:", delReq.status);
 
       onAddedToQueue();
     } catch(e) {
       console.error("Add to queue error:", e);
-      alert("Failed to add to queue: " + e.message);
+      alert("Error: " + e.message);
     }
     finally { setAdding(false); }
   };
 
   const dismiss = async () => {
     try {
-      await sbFetch(`/request_songs?request_id=eq.${req.id}`, {
-        method: "DELETE", headers: { "Prefer": "" }
+      await fetch(`${SUPABASE_URL}/rest/v1/request_songs?request_id=eq.${req.id}`, {
+        method: "DELETE",
+        headers: {
+          "apikey": SUPABASE_KEY,
+          "Authorization": `Bearer ${SUPABASE_KEY}`,
+          "Content-Type": "application/json",
+        },
       });
-      await sbFetch(`/requests?id=eq.${req.id}`, {
-        method: "DELETE", headers: { "Prefer": "" }
+      await fetch(`${SUPABASE_URL}/rest/v1/requests?id=eq.${req.id}`, {
+        method: "DELETE",
+        headers: {
+          "apikey": SUPABASE_KEY,
+          "Authorization": `Bearer ${SUPABASE_KEY}`,
+          "Content-Type": "application/json",
+        },
       });
       onAddedToQueue();
     } catch(e) { console.error(e); }
