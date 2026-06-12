@@ -391,7 +391,7 @@ function Dashboard({ nowPlaying, setNowPlaying, scrollSpeed, setScrollSpeed, scr
     loadQueueData(activeEvent.id);
     pollRef.current = setInterval(() => loadQueueData(activeEvent.id), 3000);
     return () => clearInterval(pollRef.current);
-  }, [activeEvent?.id]);
+  }, [activeEvent]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handlePlay = async (item) => {
     try {
@@ -595,7 +595,7 @@ function StageDisplay({ nowPlaying, scrollSpeed, scrollPaused, transpose, active
     load();
     const t = setInterval(load, 5000);
     return () => clearInterval(t);
-  }, [nowPlaying, activeEvent?.id]);
+  }, [nowPlaying, activeEvent]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!nowPlaying) {
     return (
@@ -687,7 +687,7 @@ export default function App() {
           nowPlaying={nowPlaying} setNowPlaying={setNowPlaying}
           scrollSpeed={scrollSpeed} setScrollSpeed={setScrollSpeed}
           scrollPaused={scrollPaused} setScrollPaused={setScrollPaused}
-          transpose={transpose} setTranspose={setTranspose}
+          transpose={transpose} setTranspose={setTranspose} setActiveEvent={setActiveEvent}
         />
       )}
       {view==="display" && (
