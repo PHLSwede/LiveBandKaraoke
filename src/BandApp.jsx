@@ -327,10 +327,11 @@ function BullpenCard({ req, position, eventId, onAddedToQueue }) {
       const existing = await api.queue.list(eventId).catch(() => []);
       const nextPos = existing && existing.length > 0
         ? Math.max(...existing.map(i => i.position)) + 1 : 0;
-      // Add to queue
-      await sbFetch("/queue", {
+
+      // Insert single queue row (no array wrapper)
+      const inserted = await sbFetch("/queue", {
         method: "POST",
-        body: JSON.stringify([{
+        body: JSON.stringify({
           request_id: req.id,
           event_id: eventId,
           singer_name: req.singer_name,
@@ -341,27 +342,41 @@ function BullpenCard({ req, position, eventId, onAddedToQueue }) {
           song_genre: selectedSong.song_genre,
           position: nextPos,
           status: "queued",
-        }]),
+        }),
       });
-      // Remove from bullpen (delete request)
-      await sbFetch(`/request_songs?request_id=eq.${req.id}`, { method: "DELETE", headers: { "Prefer": "" } });
-      await sbFetch(`/requests?id=eq.${req.id}`, { method: "DELETE", headers: { "Prefer": "" } });
+
+      console.log("Queue insert result:", inserted);
+
+      // Delete from bullpen — this also triggers singer status update via checkStatus
+      await sbFetch(`/request_songs?request_id=eq.${req.id}`, {
+        method: "DELETE", headers: { "Prefer": "" }
+      });
+      await sbFetch(`/requests?id=eq.${req.id}`, {
+        method: "DELETE", headers: { "Prefer": "" }
+      });
+
       onAddedToQueue();
-    } catch(e) { console.error(e); }
+    } catch(e) {
+      console.error("Add to queue error:", e);
+      alert("Failed to add to queue: " + e.message);
+    }
     finally { setAdding(false); }
   };
 
-  const dismissFromBullpen = async () => {
+  const dismiss = async () => {
     try {
-      await sbFetch(`/request_songs?request_id=eq.${req.id}`, { method: "DELETE", headers: { "Prefer": "" } });
-      await sbFetch(`/requests?id=eq.${req.id}`, { method: "DELETE", headers: { "Prefer": "" } });
+      await sbFetch(`/request_songs?request_id=eq.${req.id}`, {
+        method: "DELETE", headers: { "Prefer": "" }
+      });
+      await sbFetch(`/requests?id=eq.${req.id}`, {
+        method: "DELETE", headers: { "Prefer": "" }
+      });
       onAddedToQueue();
     } catch(e) { console.error(e); }
   };
 
   return (
     <div style={{background:"rgba(255,255,255,.04)",border:"1px solid rgba(255,255,255,.1)",borderRadius:12,overflow:"hidden",marginBottom:8}}>
-      {/* Singer header */}
       <div style={{padding:"12px 14px",background:"rgba(45,27,105,.3)",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
         <div style={{display:"flex",alignItems:"center",gap:10}}>
           <span style={{fontFamily:"var(--fd)",fontSize:22,color:"rgba(245,200,66,.4)",width:24}}>{position}</span>
@@ -370,10 +385,8 @@ function BullpenCard({ req, position, eventId, onAddedToQueue }) {
             <div style={{color:"rgba(255,255,255,.3)",fontSize:11,marginTop:1}}>{new Date(req.created_at).toLocaleTimeString()}</div>
           </div>
         </div>
-        <button onClick={dismissFromBullpen} style={{background:"none",border:"none",color:"rgba(255,255,255,.2)",fontSize:16,cursor:"pointer",padding:"4px 8px"}}>✕</button>
+        <button onClick={dismiss} title="Dismiss from bullpen" style={{background:"none",border:"none",color:"rgba(255,255,255,.2)",fontSize:16,cursor:"pointer",padding:"4px 8px"}}>✕</button>
       </div>
-
-      {/* Song selection */}
       <div style={{padding:"10px 14px"}}>
         <div style={{fontFamily:"var(--fd)",fontSize:10,color:"var(--gold2)",letterSpacing:3,marginBottom:8}}>SELECT SONG</div>
         <div style={{display:"flex",flexDirection:"column",gap:6}}>
@@ -383,8 +396,10 @@ function BullpenCard({ req, position, eventId, onAddedToQueue }) {
                 background:selectedSong?.id===s.id?"rgba(245,200,66,.1)":"rgba(255,255,255,.03)",
                 border:`1.5px solid ${selectedSong?.id===s.id?"var(--gold)":"rgba(255,255,255,.08)"}`,
                 borderRadius:8,cursor:"pointer",transition:"all .15s"}}>
-              <div style={{width:16,height:16,borderRadius:"50%",border:`2px solid ${selectedSong?.id===s.id?"var(--gold)":"rgba(255,255,255,.2)"}`,
-                background:selectedSong?.id===s.id?"var(--gold)":"transparent",flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center"}}>
+              <div style={{width:16,height:16,borderRadius:"50%",
+                border:`2px solid ${selectedSong?.id===s.id?"var(--gold)":"rgba(255,255,255,.2)"}`,
+                background:selectedSong?.id===s.id?"var(--gold)":"transparent",
+                flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center"}}>
                 {selectedSong?.id===s.id && <div style={{width:6,height:6,borderRadius:"50%",background:"var(--deep)"}} />}
               </div>
               <div style={{flex:1}}>
@@ -395,11 +410,13 @@ function BullpenCard({ req, position, eventId, onAddedToQueue }) {
             </div>
           ))}
         </div>
-
         <button onClick={addToQueue} disabled={!selectedSong||adding}
-          style={{width:"100%",marginTop:10,padding:"10px",background:selectedSong?"var(--gold)":"rgba(255,255,255,.06)",
-            border:"none",borderRadius:8,color:selectedSong?"var(--deep)":"rgba(255,255,255,.2)",
-            fontFamily:"var(--fd)",fontSize:14,letterSpacing:1.5,cursor:selectedSong?"pointer":"not-allowed"}}>
+          style={{width:"100%",marginTop:10,padding:"10px",
+            background:selectedSong?"var(--gold)":"rgba(255,255,255,.06)",
+            border:"none",borderRadius:8,
+            color:selectedSong?"var(--deep)":"rgba(255,255,255,.2)",
+            fontFamily:"var(--fd)",fontSize:14,letterSpacing:1.5,
+            cursor:selectedSong?"pointer":"not-allowed"}}>
           {adding ? "ADDING…" : "➕ ADD TO QUEUE"}
         </button>
       </div>
