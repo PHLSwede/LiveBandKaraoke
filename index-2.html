@@ -1,0 +1,767 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Purple Sandwich — Live Band Karaoke App</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,600;0,9..40,700;1,9..40,300&family=IBM+Plex+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --deep:     #07041a;
+    --purple:   #2d1b69;
+    --mid:      #1a0f40;
+    --gold:     #f5c842;
+    --gold2:    #c9a020;
+    --goldfade: rgba(245,200,66,0.08);
+    --white:    #ffffff;
+    --muted:    rgba(255,255,255,0.45);
+    --dim:      rgba(255,255,255,0.2);
+    --border:   rgba(245,200,66,0.15);
+    --green:    #27ae60;
+    --fd: 'Bebas Neue', sans-serif;
+    --fb: 'DM Sans', sans-serif;
+    --fm: 'IBM Plex Mono', monospace;
+    --r: 14px;
+  }
+
+  html { scroll-behavior: smooth; }
+
+  body {
+    font-family: var(--fb);
+    background: var(--deep);
+    color: var(--white);
+    line-height: 1.6;
+    overflow-x: hidden;
+  }
+
+  /* ── TYPOGRAPHY ── */
+  .display { font-family: var(--fd); letter-spacing: 3px; line-height: 1; }
+  .mono { font-family: var(--fm); }
+  .gold { color: var(--gold); }
+  .muted { color: var(--muted); }
+  .dim { color: var(--dim); }
+
+  /* ── LAYOUT ── */
+  .container { max-width: 1000px; margin: 0 auto; padding: 0 28px; }
+  .section { padding: 80px 0; }
+
+  /* ── DIVIDER ── */
+  .rule {
+    border: none;
+    border-top: 1px solid var(--border);
+    margin: 0;
+  }
+
+  /* ── HERO ── */
+  .hero {
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    padding: 60px 28px;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .hero::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background:
+      radial-gradient(ellipse 80% 60% at 50% 20%, rgba(45,27,105,0.7) 0%, transparent 70%),
+      radial-gradient(ellipse 40% 40% at 80% 80%, rgba(245,200,66,0.04) 0%, transparent 60%);
+    pointer-events: none;
+  }
+
+  /* Subtle stage light lines */
+  .hero::after {
+    content: '';
+    position: absolute;
+    top: 0; left: 50%; transform: translateX(-50%);
+    width: 2px; height: 40%;
+    background: linear-gradient(180deg, var(--gold) 0%, transparent 100%);
+    opacity: 0.15;
+    pointer-events: none;
+  }
+
+  .hero-eyebrow {
+    font-family: var(--fm);
+    font-size: 11px;
+    letter-spacing: 5px;
+    color: var(--gold2);
+    text-transform: uppercase;
+    margin-bottom: 20px;
+    position: relative;
+  }
+
+  .hero-sandwich {
+    font-family: var(--fd);
+    font-size: clamp(64px, 14vw, 130px);
+    color: var(--gold);
+    letter-spacing: 6px;
+    line-height: 0.92;
+    position: relative;
+  }
+
+  .hero-sub {
+    font-family: var(--fd);
+    font-size: clamp(18px, 4vw, 32px);
+    color: rgba(255,255,255,0.25);
+    letter-spacing: 10px;
+    margin-top: 10px;
+    position: relative;
+  }
+
+  .hero-desc {
+    max-width: 540px;
+    margin: 32px auto 0;
+    font-size: 17px;
+    color: var(--muted);
+    line-height: 1.75;
+    position: relative;
+  }
+
+  .hero-links {
+    display: flex;
+    gap: 14px;
+    margin-top: 40px;
+    flex-wrap: wrap;
+    justify-content: center;
+    position: relative;
+  }
+
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 13px 28px;
+    border-radius: var(--r);
+    font-family: var(--fd);
+    font-size: 16px;
+    letter-spacing: 2px;
+    text-decoration: none;
+    transition: all 0.2s;
+    cursor: pointer;
+    border: none;
+  }
+
+  .btn-gold {
+    background: var(--gold);
+    color: var(--deep);
+  }
+  .btn-gold:hover { filter: brightness(1.1); transform: translateY(-1px); }
+
+  .btn-outline {
+    background: transparent;
+    color: var(--gold);
+    border: 2px solid rgba(245,200,66,0.4);
+  }
+  .btn-outline:hover { border-color: var(--gold); background: rgba(245,200,66,0.06); }
+
+  .hero-scroll {
+    position: absolute;
+    bottom: 32px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    color: var(--dim);
+    font-size: 11px;
+    font-family: var(--fm);
+    letter-spacing: 2px;
+    animation: bounce 2s ease infinite;
+  }
+
+  @keyframes bounce {
+    0%, 100% { transform: translateX(-50%) translateY(0); }
+    50% { transform: translateX(-50%) translateY(6px); }
+  }
+
+  /* ── FLOW SECTION ── */
+  .flow-label {
+    font-family: var(--fm);
+    font-size: 11px;
+    letter-spacing: 4px;
+    color: var(--gold2);
+    text-align: center;
+    margin-bottom: 40px;
+  }
+
+  .flow-steps {
+    display: flex;
+    align-items: stretch;
+    gap: 0;
+    overflow-x: auto;
+    padding-bottom: 8px;
+  }
+
+  .flow-step {
+    flex: 1;
+    min-width: 130px;
+    background: rgba(45,27,105,0.3);
+    border: 1px solid var(--border);
+    border-right: none;
+    padding: 20px 16px;
+    text-align: center;
+    position: relative;
+  }
+
+  .flow-step:first-child { border-radius: var(--r) 0 0 var(--r); }
+  .flow-step:last-child { border-right: 1px solid var(--border); border-radius: 0 var(--r) var(--r) 0; }
+
+  .flow-step-icon { font-size: 26px; margin-bottom: 10px; line-height: 1; }
+  .flow-step-name { font-family: var(--fd); font-size: 14px; color: var(--gold); letter-spacing: 1.5px; }
+  .flow-step-desc { font-size: 12px; color: var(--muted); margin-top: 5px; line-height: 1.4; }
+
+  .flow-arrow {
+    display: flex;
+    align-items: center;
+    padding: 0;
+    color: rgba(245,200,66,0.3);
+    font-size: 18px;
+    background: rgba(45,27,105,0.3);
+    border-top: 1px solid var(--border);
+    border-bottom: 1px solid var(--border);
+    padding: 0 4px;
+    flex-shrink: 0;
+  }
+
+  /* ── SCREENS SECTION ── */
+  .screens-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(420px, 1fr));
+    gap: 2px;
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    overflow: hidden;
+  }
+
+  .screen-card {
+    background: rgba(255,255,255,0.02);
+    padding: 36px 32px;
+    border-right: 1px solid var(--border);
+    border-bottom: 1px solid var(--border);
+    transition: background 0.2s;
+  }
+  .screen-card:hover { background: rgba(245,200,66,0.04); }
+
+  .screen-number {
+    font-family: var(--fm);
+    font-size: 11px;
+    color: rgba(245,200,66,0.35);
+    letter-spacing: 3px;
+    margin-bottom: 12px;
+  }
+
+  .screen-icon { font-size: 36px; margin-bottom: 14px; line-height: 1; }
+
+  .screen-title {
+    font-family: var(--fd);
+    font-size: 28px;
+    color: var(--gold);
+    letter-spacing: 2px;
+    line-height: 1;
+    margin-bottom: 6px;
+  }
+
+  .screen-url {
+    font-family: var(--fm);
+    font-size: 11px;
+    color: rgba(255,255,255,0.3);
+    margin-bottom: 20px;
+    letter-spacing: 1px;
+  }
+
+  .screen-features {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .feature-line {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    font-size: 14px;
+    color: rgba(255,255,255,0.65);
+    line-height: 1.5;
+  }
+
+  .feature-dot {
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: var(--gold2);
+    margin-top: 7px;
+    flex-shrink: 0;
+  }
+
+  /* ── INSTRUCTIONS SECTION ── */
+  .section-label {
+    font-family: var(--fm);
+    font-size: 11px;
+    letter-spacing: 4px;
+    color: var(--gold2);
+    margin-bottom: 40px;
+  }
+
+  .instructions-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+  }
+
+  @media (max-width: 680px) {
+    .instructions-grid { grid-template-columns: 1fr; }
+    .screens-grid { grid-template-columns: 1fr; }
+    .flow-steps { flex-direction: column; }
+    .flow-arrow { transform: rotate(90deg); align-self: center; padding: 4px 0; background: none; border: none; }
+    .flow-step { border-right: 1px solid var(--border); border-bottom: none; border-radius: 0; }
+    .flow-step:first-child { border-radius: var(--r) var(--r) 0 0; }
+    .flow-step:last-child { border-bottom: 1px solid var(--border); border-radius: 0 0 var(--r) var(--r); }
+  }
+
+  .role-card {
+    background: rgba(255,255,255,0.02);
+    border: 1px solid var(--border);
+    border-radius: var(--r);
+    padding: 28px 24px;
+  }
+
+  .role-card-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 20px;
+  }
+
+  .role-icon { font-size: 28px; line-height: 1; }
+
+  .role-title {
+    font-family: var(--fd);
+    font-size: 22px;
+    color: var(--gold);
+    letter-spacing: 2px;
+    line-height: 1;
+  }
+
+  .role-device {
+    font-family: var(--fm);
+    font-size: 10px;
+    color: var(--dim);
+    letter-spacing: 1px;
+    margin-top: 3px;
+  }
+
+  .step-list {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    list-style: none;
+  }
+
+  .step-item {
+    display: flex;
+    gap: 14px;
+    align-items: flex-start;
+    font-size: 14px;
+    color: rgba(255,255,255,0.65);
+    line-height: 1.5;
+  }
+
+  .step-num {
+    font-family: var(--fd);
+    font-size: 20px;
+    color: rgba(245,200,66,0.4);
+    line-height: 1;
+    flex-shrink: 0;
+    width: 20px;
+    margin-top: 1px;
+  }
+
+  /* ── URLS SECTION ── */
+  .urls-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 14px;
+  }
+
+  .url-card {
+    background: var(--goldfade);
+    border: 1px solid var(--border);
+    border-radius: var(--r);
+    padding: 20px 20px;
+    text-decoration: none;
+    transition: all 0.2s;
+    display: block;
+  }
+
+  .url-card:hover {
+    background: rgba(245,200,66,0.12);
+    border-color: rgba(245,200,66,0.4);
+    transform: translateY(-2px);
+  }
+
+  .url-card-icon { font-size: 24px; margin-bottom: 10px; line-height: 1; }
+  .url-card-name { font-family: var(--fd); font-size: 18px; color: var(--gold); letter-spacing: 2px; margin-bottom: 4px; }
+  .url-card-url { font-family: var(--fm); font-size: 11px; color: var(--dim); word-break: break-all; }
+  .url-card-desc { font-size: 12px; color: var(--muted); margin-top: 8px; line-height: 1.4; }
+
+  /* ── NIGHT OF GIG ── */
+  .timeline {
+    position: relative;
+    padding-left: 32px;
+  }
+
+  .timeline::before {
+    content: '';
+    position: absolute;
+    left: 0; top: 8px; bottom: 8px;
+    width: 2px;
+    background: linear-gradient(180deg, var(--gold) 0%, rgba(245,200,66,0.1) 100%);
+  }
+
+  .timeline-item {
+    position: relative;
+    padding: 0 0 28px 28px;
+  }
+
+  .timeline-item::before {
+    content: '';
+    position: absolute;
+    left: -5px;
+    top: 6px;
+    width: 12px; height: 12px;
+    border-radius: 50%;
+    background: var(--deep);
+    border: 2px solid var(--gold);
+  }
+
+  .timeline-title {
+    font-family: var(--fd);
+    font-size: 18px;
+    color: var(--gold);
+    letter-spacing: 2px;
+    line-height: 1;
+    margin-bottom: 6px;
+  }
+
+  .timeline-desc {
+    font-size: 14px;
+    color: var(--muted);
+    line-height: 1.6;
+  }
+
+  /* ── FOOTER ── */
+  .footer {
+    padding: 60px 28px;
+    text-align: center;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .footer::before {
+    content: '';
+    position: absolute;
+    bottom: 0; left: 50%; transform: translateX(-50%);
+    width: 500px; height: 300px;
+    background: radial-gradient(ellipse, rgba(45,27,105,0.4) 0%, transparent 70%);
+    pointer-events: none;
+  }
+
+  .footer-logo { font-family: var(--fd); font-size: 48px; color: var(--gold); letter-spacing: 5px; margin-bottom: 4px; }
+  .footer-sub { font-family: var(--fd); font-size: 14px; color: var(--dim); letter-spacing: 8px; }
+  .footer-venue { font-size: 13px; color: rgba(255,255,255,0.15); margin-top: 16px; }
+
+  /* ── HIGHLIGHT PILL ── */
+  .pill {
+    display: inline-block;
+    padding: 3px 10px;
+    background: rgba(245,200,66,0.1);
+    border: 1px solid rgba(245,200,66,0.25);
+    border-radius: 20px;
+    font-size: 12px;
+    color: var(--gold2);
+    font-family: var(--fm);
+    white-space: nowrap;
+  }
+
+  /* ── STATUS BADGES ── */
+  .badge-live {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 4px 12px; border-radius: 20px;
+    background: rgba(39,174,96,0.12); border: 1px solid rgba(39,174,96,0.35);
+    font-size: 12px; color: #5dbb7e; font-family: var(--fm);
+  }
+  .badge-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--green); box-shadow: 0 0 6px var(--green); }
+
+</style>
+</head>
+<body>
+
+<!-- ── HERO ── -->
+<section class="hero">
+  <div class="hero-eyebrow">Live Band Karaoke · Philadelphia</div>
+  <div class="hero-sandwich display">PURPLE SANDWICH</div>
+  <div class="hero-sub display">KARAOKE APP</div>
+  <p class="hero-desc">
+    We built a custom app to run our karaoke nights. Singers request songs from their phones, we manage the queue from the laptop, and the chord sheets scroll automatically on the TV. No more Google Forms. No more manual scrolling.
+  </p>
+  <div class="hero-links">
+    <a href="https://purplesandwich.netlify.app/sing" target="_blank" class="btn btn-gold">🎤 Singer Portal</a>
+    <a href="https://purplesandwich.netlify.app/band" target="_blank" class="btn btn-outline">🎸 Band Dashboard</a>
+  </div>
+  <div class="hero-scroll">
+    <span>SCROLL</span>
+    <span>↓</span>
+  </div>
+</section>
+
+<hr class="rule">
+
+<!-- ── HOW IT WORKS ── -->
+<section class="section">
+  <div class="container">
+    <div class="flow-label">HOW IT WORKS ON THE NIGHT</div>
+    <div class="flow-steps">
+      <div class="flow-step">
+        <div class="flow-step-icon">🎪</div>
+        <div class="flow-step-name">CREATE EVENT</div>
+        <div class="flow-step-desc">Band opens the night in the dashboard</div>
+      </div>
+      <div class="flow-arrow">›</div>
+      <div class="flow-step">
+        <div class="flow-step-icon">📱</div>
+        <div class="flow-step-name">SINGERS REQUEST</div>
+        <div class="flow-step-desc">Scan QR, pick 3 songs, enter name</div>
+      </div>
+      <div class="flow-arrow">›</div>
+      <div class="flow-step">
+        <div class="flow-step-icon">🏟</div>
+        <div class="flow-step-name">BULLPEN</div>
+        <div class="flow-step-desc">Band sees requests, picks song, adds to queue</div>
+      </div>
+      <div class="flow-arrow">›</div>
+      <div class="flow-step">
+        <div class="flow-step-icon">🎵</div>
+        <div class="flow-step-name">QUEUE</div>
+        <div class="flow-step-desc">Hit Play — chords load on the TV instantly</div>
+      </div>
+      <div class="flow-arrow">›</div>
+      <div class="flow-step">
+        <div class="flow-step-icon">📺</div>
+        <div class="flow-step-name">STAGE</div>
+        <div class="flow-step-desc">Lyrics + chords auto-scroll via AirPlay</div>
+      </div>
+      <div class="flow-arrow">›</div>
+      <div class="flow-step">
+        <div class="flow-step-icon">📋</div>
+        <div class="flow-step-name">HISTORY</div>
+        <div class="flow-step-desc">Full setlist saved after every gig</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<hr class="rule">
+
+<!-- ── THE FOUR SCREENS ── -->
+<section class="section">
+  <div class="container">
+    <div class="flow-label">THE FOUR SCREENS</div>
+    <div class="screens-grid">
+
+      <div class="screen-card">
+        <div class="screen-number">01</div>
+        <div class="screen-icon">📱</div>
+        <div class="screen-title display">SINGER PORTAL</div>
+        <div class="screen-url">purplesandwich.netlify.app/sing</div>
+        <div class="screen-features">
+          <div class="feature-line"><span class="feature-dot"></span>Browse the full song library, search by title, artist or genre</div>
+          <div class="feature-line"><span class="feature-dot"></span>Pick up to 3 songs, enter your name, submit in seconds</div>
+          <div class="feature-line"><span class="feature-dot"></span>Shows active event name — disabled if no event is open</div>
+          <div class="feature-line"><span class="feature-dot"></span>Status screen updates live: Bullpen → Queue → You're On → Done</div>
+          <div class="feature-line"><span class="feature-dot"></span>Share via QR code at the venue — no app download needed</div>
+        </div>
+      </div>
+
+      <div class="screen-card">
+        <div class="screen-number">02</div>
+        <div class="screen-icon">🎸</div>
+        <div class="screen-title display">BAND DASHBOARD</div>
+        <div class="screen-url">purplesandwich.netlify.app/band</div>
+        <div class="screen-features">
+          <div class="feature-line"><span class="feature-dot"></span><strong style="color:white">Events tab</strong> — create and manage gigs, view history + export setlists</div>
+          <div class="feature-line"><span class="feature-dot"></span><strong style="color:white">Queue tab</strong> — Bullpen shows all requests in order; pick a song, add to queue</div>
+          <div class="feature-line"><span class="feature-dot"></span>Drag to reorder the queue at any time</div>
+          <div class="feature-line"><span class="feature-dot"></span>Hit Play — instantly pushes the song to the TV</div>
+          <div class="feature-line"><span class="feature-dot"></span><strong style="color:white">Prompter tab</strong> — auto-scroll toggle, speed control, transpose ±semitones</div>
+        </div>
+      </div>
+
+      <div class="screen-card">
+        <div class="screen-number">03</div>
+        <div class="screen-icon">📺</div>
+        <div class="screen-title display">STAGE DISPLAY</div>
+        <div class="screen-url">purplesandwich.netlify.app/stage</div>
+        <div class="screen-features">
+          <div class="feature-line"><span class="feature-dot"></span>Full-screen teleprompter — chords in blue, lyrics in white, sections in gold</div>
+          <div class="feature-line"><span class="feature-dot"></span>Scrolls naturally with mouse, trackpad, or keyboard arrows</div>
+          <div class="feature-line"><span class="feature-dot"></span>Optional auto-scroll — enable from the Prompter tab when hands-free</div>
+          <div class="feature-line"><span class="feature-dot"></span>Transpose updates all chords live on screen in real time</div>
+          <div class="feature-line"><span class="feature-dot"></span>Cast to TV via AirPlay from MacBook — open in its own window</div>
+        </div>
+      </div>
+
+      <div class="screen-card">
+        <div class="screen-number">04</div>
+        <div class="screen-icon">🖥</div>
+        <div class="screen-title display">QUEUE BOARD</div>
+        <div class="screen-url">purplesandwich.netlify.app/board</div>
+        <div class="screen-features">
+          <div class="feature-line"><span class="feature-dot"></span>Passive display for iPad — sits on the bar or stage edge</div>
+          <div class="feature-line"><span class="feature-dot"></span>Rotates every 10 seconds between Now Playing, Queue, and QR code</div>
+          <div class="feature-line"><span class="feature-dot"></span>Two modes — different panels when a song is playing vs between songs</div>
+          <div class="feature-line"><span class="feature-dot"></span>QR code links directly to the singer portal for easy sign-up</div>
+          <div class="feature-line"><span class="feature-dot"></span>Shows Purple Sandwich branding and event info between songs</div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<hr class="rule">
+
+<!-- ── NIGHT OF A GIG ── -->
+<section class="section">
+  <div class="container">
+    <div class="flow-label">NIGHT OF A GIG — STEP BY STEP</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:48px;">
+
+      <div>
+        <div style="font-family:var(--fd);font-size:14px;color:var(--gold2);letter-spacing:3px;margin-bottom:20px;">BEFORE YOU START</div>
+        <div class="timeline">
+          <div class="timeline-item">
+            <div class="timeline-title display">OPEN BAND DASHBOARD</div>
+            <div class="timeline-desc">Go to <span class="pill">purplesandwich.netlify.app/band</span> on the laptop. This is your control centre for the night.</div>
+          </div>
+          <div class="timeline-item">
+            <div class="timeline-title display">CREATE AN EVENT</div>
+            <div class="timeline-desc">Events tab → fill in the name, venue and date → Create &amp; Go Live. This activates the singer portal.</div>
+          </div>
+          <div class="timeline-item">
+            <div class="timeline-title display">SET UP THE SCREENS</div>
+            <div class="timeline-desc">Open <span class="pill">/stage</span> in a separate window → AirPlay to TV → fullscreen. Open <span class="pill">/board</span> on iPad → fullscreen → leave on the bar.</div>
+          </div>
+          <div class="timeline-item">
+            <div class="timeline-title display">SHARE THE QR CODE</div>
+            <div class="timeline-desc">The Queue Board shows a QR code automatically. Singers scan it to reach the portal. You can also print one pointing to <span class="pill">/sing</span>.</div>
+          </div>
+        </div>
+      </div>
+
+      <div>
+        <div style="font-family:var(--fd);font-size:14px;color:var(--gold2);letter-spacing:3px;margin-bottom:20px;">RUNNING THE NIGHT</div>
+        <div class="timeline">
+          <div class="timeline-item">
+            <div class="timeline-title display">SINGERS REQUEST</div>
+            <div class="timeline-desc">Singers submit up to 3 song picks from their phone. They land in your Bullpen in order of submission.</div>
+          </div>
+          <div class="timeline-item">
+            <div class="timeline-title display">ADD TO QUEUE</div>
+            <div class="timeline-desc">Queue tab → Bullpen. Pick which of their 3 songs to use, hit Add to Queue. They're removed from the bullpen and added to the queue. Singer's phone updates automatically.</div>
+          </div>
+          <div class="timeline-item">
+            <div class="timeline-title display">HIT PLAY</div>
+            <div class="timeline-desc">Queue tab → Queue. Hit ▶ Play on the next singer. Their chord sheet loads on the TV instantly. Singer's phone shows "GET UP THERE!"</div>
+          </div>
+          <div class="timeline-item">
+            <div class="timeline-title display">MARK COMPLETE</div>
+            <div class="timeline-desc">When they're done, hit ✓ Complete. The song is logged to history, the queue advances, and the singer's phone shows "Great Job!"</div>
+          </div>
+          <div class="timeline-item">
+            <div class="timeline-title display">END OF NIGHT</div>
+            <div class="timeline-desc">Events tab → Close Night. The setlist is saved. You can export it as plain text any time from the History tab.</div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<hr class="rule">
+
+<!-- ── QUICK LINKS ── -->
+<section class="section">
+  <div class="container">
+    <div class="flow-label" style="text-align:center;">YOUR LINKS</div>
+    <div class="urls-grid">
+      <a href="https://purplesandwich.netlify.app/sing" target="_blank" class="url-card">
+        <div class="url-card-icon">📱</div>
+        <div class="url-card-name display">SINGER</div>
+        <div class="url-card-url">purplesandwich.netlify.app/sing</div>
+        <div class="url-card-desc">Share this with singers. Show as QR code at the venue.</div>
+      </a>
+      <a href="https://purplesandwich.netlify.app/band" target="_blank" class="url-card">
+        <div class="url-card-icon">🎸</div>
+        <div class="url-card-name display">BAND</div>
+        <div class="url-card-url">purplesandwich.netlify.app/band</div>
+        <div class="url-card-desc">Band dashboard. Keep this private — on the host laptop.</div>
+      </a>
+      <a href="https://purplesandwich.netlify.app/stage" target="_blank" class="url-card">
+        <div class="url-card-icon">📺</div>
+        <div class="url-card-name display">STAGE</div>
+        <div class="url-card-url">purplesandwich.netlify.app/stage</div>
+        <div class="url-card-desc">Open in its own window. AirPlay this to the TV.</div>
+      </a>
+      <a href="https://purplesandwich.netlify.app/board" target="_blank" class="url-card">
+        <div class="url-card-icon">🖥</div>
+        <div class="url-card-name display">BOARD</div>
+        <div class="url-card-url">purplesandwich.netlify.app/board</div>
+        <div class="url-card-desc">Leave this fullscreen on the iPad at the bar.</div>
+      </a>
+    </div>
+  </div>
+</section>
+
+<hr class="rule">
+
+<!-- ── TECH NOTE ── -->
+<section class="section" style="padding:48px 0;">
+  <div class="container">
+    <div style="display:flex;align-items:flex-start;gap:32px;flex-wrap:wrap;">
+      <div style="flex:1;min-width:240px;">
+        <div style="font-family:var(--fd);font-size:13px;color:var(--gold2);letter-spacing:3px;margin-bottom:12px;">UNDER THE HOOD</div>
+        <div style="font-size:14px;color:var(--muted);line-height:1.8;">
+          Built with React, hosted on Netlify (free tier), database on Supabase (free tier). Singer requests sync across all devices in real time — no refresh needed. Everything runs in the browser, nothing to install.
+        </div>
+      </div>
+      <div style="flex:1;min-width:240px;">
+        <div style="font-family:var(--fd);font-size:13px;color:var(--gold2);letter-spacing:3px;margin-bottom:12px;">SOURCE CODE</div>
+        <div style="font-size:14px;color:var(--muted);line-height:1.8;">
+          Repo is at <a href="https://github.com/PHLSwede/LiveBandKaraoke" target="_blank" style="color:var(--gold);text-decoration:none;border-bottom:1px solid rgba(245,200,66,0.3);">github.com/PHLSwede/LiveBandKaraoke</a>. Song library is in <span class="pill">src/songs.js</span> — easy to add new songs.
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── FOOTER ── -->
+<hr class="rule">
+<footer class="footer">
+  <div class="footer-logo display">PURPLE SANDWICH</div>
+  <div class="footer-sub display">LIVE BAND KARAOKE</div>
+  <div class="footer-venue">Watkins Drinkery · 1712 S. 10th St. · Philadelphia</div>
+</footer>
+
+</body>
+</html>
