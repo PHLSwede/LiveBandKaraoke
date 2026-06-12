@@ -3,10 +3,6 @@ import { useState, useEffect } from "react";
 const SUPABASE_URL = process.env.REACT_APP_SUPABASE_URL;
 const SUPABASE_KEY = process.env.REACT_APP_SUPABASE_KEY;
 
-
-
-
-
 async function sbFetch(path, opts = {}) {
   const res = await fetch(`${SUPABASE_URL}/rest/v1${path}`, {
     ...opts,
@@ -28,6 +24,7 @@ async function getActiveEvent() {
   return list && list.length > 0 ? list[0] : null;
 }
 
+// Submit request + songs only — no queue insertion, admin handles that
 async function submitRequest(singerName, songs, eventId) {
   const [req] = await sbFetch("/requests", {
     method: "POST",
@@ -41,19 +38,10 @@ async function submitRequest(singerName, songs, eventId) {
       song_artist: s.artist, song_key: s.key, song_genre: s.genre,
     }))),
   });
-  const queueItems = await sbFetch(`/queue?event_id=eq.${eventId}&status=eq.queued&select=position&order=position.desc&limit=1`);
-  const nextPos = queueItems && queueItems.length > 0 ? queueItems[0].position + 1 : 0;
-  await sbFetch("/queue", {
-    method: "POST",
-    body: JSON.stringify(songs.map((s, i) => ({
-      request_id: req.id, event_id: eventId,
-      singer_name: singerName, song_id: s.id, song_title: s.title,
-      song_artist: s.artist, song_key: s.key, song_genre: s.genre,
-      position: nextPos + i, status: "queued",
-    }))),
-  });
-  const ahead = await sbFetch(`/queue?event_id=eq.${eventId}&status=eq.queued&position=lt.${nextPos}&select=id`);
-  return (ahead ? ahead.length : 0) + 1;
+  // Return bullpen position — count of pending requests before this one
+  const bullpen = await sbFetch(`/requests?event_id=eq.${eventId}&select=id&order=created_at.asc`);
+  const pos = (bullpen || []).findIndex(r => r.id === req.id) + 1;
+  return pos > 0 ? pos : (bullpen || []).length;
 }
 
 const SONG_LIBRARY = [
@@ -94,22 +82,27 @@ const css = `
   .pulse{animation:pulse-ring 2s ease infinite;}
 `;
 
-function Confirmation({ name, picks, queuePos, eventName, onReset }) {
+function Confirmation({ name, picks, bullpenPos, eventName, onReset }) {
   return (
     <div className="fade-up" style={{minHeight:"100dvh",background:"radial-gradient(ellipse at 50% 30%, rgba(100,60,200,.4) 0%, var(--deep) 65%)",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:"32px 24px",textAlign:"center"}}>
       <div style={{fontSize:72,marginBottom:16,lineHeight:1}}>🎤</div>
-      <h1 style={{fontFamily:"var(--fd)",fontSize:64,color:"var(--gold)",letterSpacing:4,lineHeight:1}}>YOU'RE IN!</h1>
-      <p style={{color:"rgba(255,255,255,.55)",fontSize:17,marginTop:8}}>
-        Get ready, <strong style={{color:"white"}}>{name}</strong>
+      <h1 style={{fontFamily:"var(--fd)",fontSize:56,color:"var(--gold)",letterSpacing:4,lineHeight:1}}>REQUEST RECEIVED</h1>
+      <p style={{color:"rgba(255,255,255,.55)",fontSize:17,marginTop:10,lineHeight:1.6}}>
+        You're in the bullpen, <strong style={{color:"white"}}>{name}</strong>.<br/>
+        Hang tight — the band will call you up soon.
       </p>
       {eventName && <div style={{marginTop:8,color:"rgba(255,255,255,.3)",fontSize:13,fontFamily:"var(--fd)",letterSpacing:2}}>{eventName}</div>}
+
+      {/* Bullpen position */}
       <div className="pulse" style={{margin:"28px 0",background:"rgba(245,200,66,.08)",border:"2px solid var(--gold)",borderRadius:20,padding:"22px 48px",width:"100%",maxWidth:300}}>
-        <div style={{fontFamily:"var(--fd)",fontSize:13,color:"var(--gold-dim)",letterSpacing:5,marginBottom:4}}>QUEUE POSITION</div>
-        <div style={{fontFamily:"var(--fd)",fontSize:88,color:"white",lineHeight:1}}>#{queuePos}</div>
-        <div style={{color:"rgba(255,255,255,.35)",fontSize:13,marginTop:6}}>~{Math.max(0,(queuePos-1)*5)} min wait</div>
+        <div style={{fontFamily:"var(--fd)",fontSize:13,color:"var(--gold-dim)",letterSpacing:5,marginBottom:4}}>BULLPEN POSITION</div>
+        <div style={{fontFamily:"var(--fd)",fontSize:88,color:"white",lineHeight:1}}>#{bullpenPos}</div>
+        <div style={{color:"rgba(255,255,255,.35)",fontSize:13,marginTop:6}}>Wait to be called to the stage</div>
       </div>
+
+      {/* Song picks */}
       <div style={{width:"100%",maxWidth:380,marginBottom:28,textAlign:"left"}}>
-        <div style={{fontFamily:"var(--fd)",fontSize:13,color:"var(--gold-dim)",letterSpacing:4,marginBottom:10}}>YOUR SONGS</div>
+        <div style={{fontFamily:"var(--fd)",fontSize:13,color:"var(--gold-dim)",letterSpacing:4,marginBottom:10}}>YOUR PICKS</div>
         {picks.map((p,i) => (
           <div key={p.id} style={{display:"flex",gap:14,alignItems:"center",padding:"10px 0",borderBottom:"1px solid rgba(255,255,255,.07)"}}>
             <span style={{fontFamily:"var(--fd)",fontSize:22,color:"var(--gold-dim)",width:24,flexShrink:0}}>{i+1}</span>
@@ -120,6 +113,13 @@ function Confirmation({ name, picks, queuePos, eventName, onReset }) {
           </div>
         ))}
       </div>
+
+      <div style={{padding:"14px 20px",background:"rgba(255,255,255,.04)",border:"1px solid rgba(255,255,255,.1)",borderRadius:12,marginBottom:28,maxWidth:380,width:"100%"}}>
+        <div style={{fontSize:13,color:"rgba(255,255,255,.5)",lineHeight:1.6}}>
+          🎸 The band will choose one of your songs and add you to the queue. Keep an eye on the stage!
+        </div>
+      </div>
+
       <button onClick={onReset} style={{background:"transparent",border:"2px solid rgba(245,200,66,.4)",color:"var(--gold)",padding:"12px 36px",borderRadius:10,fontFamily:"var(--fd)",fontSize:17,letterSpacing:2}}>
         REQUEST AGAIN
       </button>
@@ -161,7 +161,7 @@ export default function SingerApp() {
     setLoading(true); setError(null);
     try {
       const pos = await submitRequest(name.trim(), picks, activeEvent.id);
-      setSubmitted({ name: name.trim(), picks: [...picks], queuePos: pos, eventName: activeEvent.name });
+      setSubmitted({ name: name.trim(), picks: [...picks], bullpenPos: pos, eventName: activeEvent.name });
     } catch(e) { setError("Couldn't submit — please try again."); console.error(e); }
     finally { setLoading(false); }
   };
@@ -183,29 +183,27 @@ export default function SingerApp() {
       <div style={{minHeight:"100dvh",background:"var(--deep)"}}>
         {/* Header */}
         <div style={{background:"linear-gradient(180deg,rgba(45,27,105,.9) 0%,var(--deep) 100%)",padding:"24px 20px 16px",borderBottom:"2px solid rgba(245,200,66,.2)",position:"sticky",top:0,zIndex:10,backdropFilter:"blur(12px)"}}>
-          <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:activeEvent?6:0}}>
+          <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:6}}>
             <span style={{fontSize:20}}>🥪</span>
             <div>
               <div style={{fontFamily:"var(--fd)",fontSize:22,color:"var(--gold)",letterSpacing:3,lineHeight:1}}>PURPLE SANDWICH</div>
               <div style={{fontFamily:"var(--fd)",fontSize:10,color:"rgba(245,200,66,.4)",letterSpacing:4}}>LIVE BAND KARAOKE</div>
             </div>
           </div>
-          {/* Active event badge */}
           {!eventLoading && activeEvent && (
-            <div style={{marginTop:6,display:"inline-flex",alignItems:"center",gap:6,background:"rgba(39,174,96,.1)",border:"1px solid rgba(39,174,96,.3)",borderRadius:6,padding:"4px 10px"}}>
+            <div style={{display:"inline-flex",alignItems:"center",gap:6,background:"rgba(39,174,96,.1)",border:"1px solid rgba(39,174,96,.3)",borderRadius:6,padding:"4px 10px"}}>
               <div style={{width:6,height:6,borderRadius:"50%",background:"#27ae60",boxShadow:"0 0 4px #27ae60"}} />
               <span style={{fontSize:12,color:"rgba(255,255,255,.6)"}}>{activeEvent.name} · {activeEvent.venue}</span>
             </div>
           )}
           {!eventLoading && !activeEvent && (
-            <div style={{marginTop:6,display:"inline-flex",alignItems:"center",gap:6,background:"rgba(192,57,43,.1)",border:"1px solid rgba(192,57,43,.3)",borderRadius:6,padding:"4px 10px"}}>
+            <div style={{display:"inline-flex",alignItems:"center",gap:6,background:"rgba(192,57,43,.1)",border:"1px solid rgba(192,57,43,.3)",borderRadius:6,padding:"4px 10px"}}>
               <span style={{fontSize:12,color:"rgba(192,57,43,.8)"}}>No active event — check back soon!</span>
             </div>
           )}
         </div>
 
         <div style={{padding:"20px",maxWidth:560,margin:"0 auto"}}>
-          {/* Name */}
           <div style={{marginBottom:24}}>
             <label style={{display:"block",fontFamily:"var(--fd)",fontSize:12,color:"var(--gold-dim)",letterSpacing:3,marginBottom:7}}>YOUR NAME</label>
             <input value={name} onChange={e=>setName(e.target.value)} placeholder="What should we call you?" maxLength={30}
@@ -213,7 +211,7 @@ export default function SingerApp() {
           </div>
 
           <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10}}>
-            <label style={{fontFamily:"var(--fd)",fontSize:12,color:"var(--gold-dim)",letterSpacing:3}}>PICK YOUR SONGS</label>
+            <label style={{fontFamily:"var(--fd)",fontSize:12,color:"var(--gold-dim)",letterSpacing:3}}>PICK UP TO 3 SONGS</label>
             <span style={{fontSize:12,fontWeight:600,color:picks.length===3?"var(--gold)":"rgba(255,255,255,.3)"}}>{picks.length} / 3</span>
           </div>
 
@@ -266,7 +264,7 @@ export default function SingerApp() {
               : !activeEvent ? "NO ACTIVE EVENT"
               : picks.length===0 ? "SELECT A SONG TO CONTINUE"
               : !name.trim() ? "ENTER YOUR NAME ABOVE"
-              : `REQUEST ${picks.length} SONG${picks.length>1?"S":""}`}
+              : `SUBMIT ${picks.length} PICK${picks.length>1?"S":""}`}
           </button>
 
           <div style={{textAlign:"center",marginTop:20,color:"rgba(255,255,255,.1)",fontSize:11,letterSpacing:2,fontFamily:"var(--fd)"}}>

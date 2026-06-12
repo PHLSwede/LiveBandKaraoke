@@ -111,6 +111,7 @@ function EventsTab() {
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState(null);
   const [expanded, setExpanded] = useState({});
   const [songsByEvent, setSongsByEvent] = useState({});
   const [copied, setCopied] = useState(null);
@@ -140,15 +141,19 @@ function EventsTab() {
   const createEvent = async () => {
     if (!form.name.trim()) return;
     setSaving(true);
+    setSaveError(null);
     try {
-      // Close any active events first
       const active = events.filter(e => e.status === "active");
       await Promise.all(active.map(e => api.events.update(e.id, { status: "closed" })));
-      await api.events.create({ ...form, status: "active" });
+      const result = await api.events.create({ ...form, status: "active" });
+      if (!result || result.length === 0) throw new Error("No data returned — check Supabase RLS policies");
       setShowForm(false);
       setForm({ name: "", venue: "Watkins Drinkery", date: new Date().toISOString().split("T")[0] });
       await loadEvents();
-    } catch(e) { console.error("Create event error:", e); }
+    } catch(e) {
+      console.error("Create event error:", e);
+      setSaveError(e.message || "Failed to create event");
+    }
     finally { setSaving(false); }
   };
 
@@ -220,8 +225,13 @@ function EventsTab() {
               <button onClick={createEvent} disabled={saving||!form.name.trim()} className="btn-gold" style={{flex:1,padding:"12px",fontSize:15}}>
                 {saving ? "CREATING…" : "CREATE & GO LIVE"}
               </button>
-              <button onClick={() => setShowForm(false)} className="btn-ghost" style={{padding:"12px 16px",fontSize:13}}>Cancel</button>
+              <button onClick={() => { setShowForm(false); setSaveError(null); }} className="btn-ghost" style={{padding:"12px 16px",fontSize:13}}>Cancel</button>
             </div>
+            {saveError && (
+              <div style={{marginTop:8,padding:"10px 12px",background:"rgba(192,57,43,.15)",border:"1px solid rgba(192,57,43,.4)",borderRadius:8,color:"#e74c3c",fontSize:12}}>
+                ⚠️ {saveError}
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -296,13 +306,114 @@ function EventsTab() {
   );
 }
 
+// ─── BULLPEN CARD ─────────────────────────────────────────────────────────────
+function BullpenCard({ req, position, eventId, onAddedToQueue }) {
+  const [songs, setSongs] = useState([]);
+  const [selectedSong, setSelectedSong] = useState(null);
+  const [adding, setAdding] = useState(false);
+
+  useEffect(() => {
+    api.requestSongs.list(req.id).then(s => {
+      setSongs(s || []);
+      if (s && s.length > 0) setSelectedSong(s[0]);
+    }).catch(console.error);
+  }, [req.id]);
+
+  const addToQueue = async () => {
+    if (!selectedSong) return;
+    setAdding(true);
+    try {
+      // Get current max queue position
+      const existing = await api.queue.list(eventId).catch(() => []);
+      const nextPos = existing && existing.length > 0
+        ? Math.max(...existing.map(i => i.position)) + 1 : 0;
+      // Add to queue
+      await sbFetch("/queue", {
+        method: "POST",
+        body: JSON.stringify([{
+          request_id: req.id,
+          event_id: eventId,
+          singer_name: req.singer_name,
+          song_id: selectedSong.song_id,
+          song_title: selectedSong.song_title,
+          song_artist: selectedSong.song_artist,
+          song_key: selectedSong.song_key,
+          song_genre: selectedSong.song_genre,
+          position: nextPos,
+          status: "queued",
+        }]),
+      });
+      // Remove from bullpen (delete request)
+      await sbFetch(`/request_songs?request_id=eq.${req.id}`, { method: "DELETE", headers: { "Prefer": "" } });
+      await sbFetch(`/requests?id=eq.${req.id}`, { method: "DELETE", headers: { "Prefer": "" } });
+      onAddedToQueue();
+    } catch(e) { console.error(e); }
+    finally { setAdding(false); }
+  };
+
+  const dismissFromBullpen = async () => {
+    try {
+      await sbFetch(`/request_songs?request_id=eq.${req.id}`, { method: "DELETE", headers: { "Prefer": "" } });
+      await sbFetch(`/requests?id=eq.${req.id}`, { method: "DELETE", headers: { "Prefer": "" } });
+      onAddedToQueue();
+    } catch(e) { console.error(e); }
+  };
+
+  return (
+    <div style={{background:"rgba(255,255,255,.04)",border:"1px solid rgba(255,255,255,.1)",borderRadius:12,overflow:"hidden",marginBottom:8}}>
+      {/* Singer header */}
+      <div style={{padding:"12px 14px",background:"rgba(45,27,105,.3)",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+        <div style={{display:"flex",alignItems:"center",gap:10}}>
+          <span style={{fontFamily:"var(--fd)",fontSize:22,color:"rgba(245,200,66,.4)",width:24}}>{position}</span>
+          <div>
+            <div style={{fontWeight:700,fontSize:15,color:"white"}}>{req.singer_name}</div>
+            <div style={{color:"rgba(255,255,255,.3)",fontSize:11,marginTop:1}}>{new Date(req.created_at).toLocaleTimeString()}</div>
+          </div>
+        </div>
+        <button onClick={dismissFromBullpen} style={{background:"none",border:"none",color:"rgba(255,255,255,.2)",fontSize:16,cursor:"pointer",padding:"4px 8px"}}>✕</button>
+      </div>
+
+      {/* Song selection */}
+      <div style={{padding:"10px 14px"}}>
+        <div style={{fontFamily:"var(--fd)",fontSize:10,color:"var(--gold2)",letterSpacing:3,marginBottom:8}}>SELECT SONG</div>
+        <div style={{display:"flex",flexDirection:"column",gap:6}}>
+          {songs.map(s => (
+            <div key={s.id} onClick={() => setSelectedSong(s)}
+              style={{display:"flex",alignItems:"center",gap:10,padding:"9px 12px",
+                background:selectedSong?.id===s.id?"rgba(245,200,66,.1)":"rgba(255,255,255,.03)",
+                border:`1.5px solid ${selectedSong?.id===s.id?"var(--gold)":"rgba(255,255,255,.08)"}`,
+                borderRadius:8,cursor:"pointer",transition:"all .15s"}}>
+              <div style={{width:16,height:16,borderRadius:"50%",border:`2px solid ${selectedSong?.id===s.id?"var(--gold)":"rgba(255,255,255,.2)"}`,
+                background:selectedSong?.id===s.id?"var(--gold)":"transparent",flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center"}}>
+                {selectedSong?.id===s.id && <div style={{width:6,height:6,borderRadius:"50%",background:"var(--deep)"}} />}
+              </div>
+              <div style={{flex:1}}>
+                <div style={{fontWeight:600,fontSize:13,color:"white"}}>{s.song_title}</div>
+                <div style={{color:"rgba(255,255,255,.35)",fontSize:11}}>{s.song_artist}</div>
+              </div>
+              <div style={{fontFamily:"var(--fm)",fontSize:11,color:"rgba(255,255,255,.3)"}}>{s.song_key}</div>
+            </div>
+          ))}
+        </div>
+
+        <button onClick={addToQueue} disabled={!selectedSong||adding}
+          style={{width:"100%",marginTop:10,padding:"10px",background:selectedSong?"var(--gold)":"rgba(255,255,255,.06)",
+            border:"none",borderRadius:8,color:selectedSong?"var(--deep)":"rgba(255,255,255,.2)",
+            fontFamily:"var(--fd)",fontSize:14,letterSpacing:1.5,cursor:selectedSong?"pointer":"not-allowed"}}>
+          {adding ? "ADDING…" : "➕ ADD TO QUEUE"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 // ─── QUEUE TAB ────────────────────────────────────────────────────────────────
 function QueueTab() {
   const [activeEvent, setActiveEvent] = useState(null);
   const [queue, setQueue] = useState([]);
-  const [requests, setRequests] = useState([]);
+  const [bullpen, setBullpen] = useState([]);
   const [nowPlaying, setNowPlaying] = useState(null);
-  const [subTab, setSubTab] = useState("queue");
+  const [subTab, setSubTab] = useState("bullpen");
   const [dragIdx, setDragIdx] = useState(null);
   const [loading, setLoading] = useState(true);
   const pollRef = useRef(null);
@@ -312,14 +423,14 @@ function QueueTab() {
       const evts = await api.events.active();
       const event = evts && evts.length > 0 ? evts[0] : null;
       setActiveEvent(event);
-      if (!event) { setQueue([]); setRequests([]); setNowPlaying(null); setLoading(false); return; }
+      if (!event) { setQueue([]); setBullpen([]); setNowPlaying(null); setLoading(false); return; }
       const [q, r, playing] = await Promise.all([
         api.queue.list(event.id),
         api.requests.list(event.id),
         api.queue.playing(event.id),
       ]);
       setQueue(q || []);
-      setRequests(r || []);
+      setBullpen(r || []);
       setNowPlaying(playing && playing.length > 0 ? playing[0] : null);
     } catch(e) { console.error(e); }
     finally { setLoading(false); }
@@ -333,7 +444,6 @@ function QueueTab() {
 
   const handlePlay = async (item) => {
     try {
-      // Mark current playing as done first
       if (nowPlaying) await api.queue.update(nowPlaying.id, { status: "done" });
       await api.queue.update(item.id, { status: "playing" });
       await loadData();
@@ -383,7 +493,7 @@ function QueueTab() {
           <span style={{color:"rgba(255,255,255,.25)",fontSize:12}}>· {activeEvent.venue}</span>
         </div>
         <div style={{fontSize:11,color:"rgba(255,255,255,.2)"}}>
-          <span className={loading?"spin":""}>⟳</span> Live · 3s refresh
+          <span className={loading?"spin":""}>⟳</span> Live · 3s
         </div>
       </div>
 
@@ -403,20 +513,44 @@ function QueueTab() {
 
       {/* Sub tabs */}
       <div style={{display:"flex",borderBottom:"1px solid rgba(245,200,66,.1)",flexShrink:0}}>
-        {[["queue",`QUEUE (${queue.length})`],["requests",`REQUESTS (${requests.length})`]].map(([t,l]) => (
+        {[["bullpen",`🏟 BULLPEN (${bullpen.length})`],["queue",`🎵 QUEUE (${queue.length})`]].map(([t,l]) => (
           <button key={t} className={`tab-btn${subTab===t?" active":""}`} style={{fontSize:13,padding:"10px 20px"}} onClick={()=>setSubTab(t)}>{l}</button>
         ))}
       </div>
 
       {/* Content */}
       <div style={{flex:1,overflowY:"auto",padding:16}}>
+
+        {/* BULLPEN */}
+        {subTab==="bullpen" && (
+          <div>
+            {bullpen.length===0 && (
+              <div style={{textAlign:"center",padding:"50px 0",color:"rgba(255,255,255,.2)"}}>
+                <div style={{fontSize:32,marginBottom:10}}>🏟</div>
+                <div style={{fontFamily:"var(--fd)",fontSize:16,letterSpacing:2}}>BULLPEN IS EMPTY</div>
+                <div style={{fontSize:12,marginTop:6}}>Singers request at purplesandwich.netlify.app/sing</div>
+              </div>
+            )}
+            {bullpen.map((req, i) => (
+              <BullpenCard
+                key={req.id}
+                req={req}
+                position={i + 1}
+                eventId={activeEvent.id}
+                onAddedToQueue={loadData}
+              />
+            ))}
+          </div>
+        )}
+
+        {/* QUEUE */}
         {subTab==="queue" && (
           <div style={{display:"flex",flexDirection:"column",gap:6}}>
             {queue.length===0 && (
               <div style={{textAlign:"center",padding:"50px 0",color:"rgba(255,255,255,.2)"}}>
                 <div style={{fontSize:32,marginBottom:10}}>🎵</div>
                 <div style={{fontFamily:"var(--fd)",fontSize:16,letterSpacing:2}}>QUEUE IS EMPTY</div>
-                <div style={{fontSize:12,marginTop:6}}>Singers request via purplesandwich.netlify.app/sing</div>
+                <div style={{fontSize:12,marginTop:6}}>Add singers from the Bullpen tab</div>
               </div>
             )}
             {queue.map((item,i) => (
@@ -429,7 +563,7 @@ function QueueTab() {
                 <div style={{flex:1,minWidth:0}}>
                   <div style={{fontWeight:600,fontSize:14}}>{item.song_title}</div>
                   <div style={{color:"rgba(255,255,255,.4)",fontSize:12,marginTop:1}}>
-                    {item.singer_name} · {item.song_artist} · <span style={{fontFamily:"var(--fm)",fontSize:11}}>{item.song_key}</span> · {item.song_genre}
+                    {item.singer_name} · {item.song_artist} · <span style={{fontFamily:"var(--fm)",fontSize:11}}>{item.song_key}</span>
                   </div>
                 </div>
                 <button onClick={()=>handlePlay(item)} style={{
@@ -441,36 +575,7 @@ function QueueTab() {
             ))}
           </div>
         )}
-
-        {subTab==="requests" && (
-          <div style={{display:"flex",flexDirection:"column",gap:8}}>
-            {requests.length===0 && <div style={{textAlign:"center",padding:"50px",color:"rgba(255,255,255,.2)",fontFamily:"var(--fd)",fontSize:16,letterSpacing:2}}>NO REQUESTS YET</div>}
-            {requests.map(req => (
-              <div key={req.id} style={{padding:"14px 16px",background:"rgba(255,255,255,.04)",border:"1px solid rgba(255,255,255,.07)",borderRadius:10}}>
-                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
-                  <span style={{fontWeight:600,fontSize:14}}>{req.singer_name}</span>
-                  <span style={{color:"rgba(255,255,255,.25)",fontSize:11}}>{new Date(req.created_at).toLocaleTimeString()}</span>
-                </div>
-                <RequestSongs requestId={req.id} />
-              </div>
-            ))}
-          </div>
-        )}
       </div>
-    </div>
-  );
-}
-
-function RequestSongs({ requestId }) {
-  const [songs, setSongs] = useState([]);
-  useEffect(() => { api.requestSongs.list(requestId).then(setSongs).catch(console.error); }, [requestId]);
-  return (
-    <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
-      {songs.map(s => (
-        <span key={s.id} style={{background:"rgba(245,200,66,.08)",border:"1px solid rgba(245,200,66,.2)",borderRadius:6,padding:"3px 10px",fontSize:12,color:"var(--gold2)"}}>
-          {s.song_title}
-        </span>
-      ))}
     </div>
   );
 }
