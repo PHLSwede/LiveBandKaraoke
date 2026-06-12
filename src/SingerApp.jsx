@@ -24,11 +24,12 @@ async function getActiveEvent() {
   return list && list.length > 0 ? list[0] : null;
 }
 
-// Submit request + songs only — no queue insertion, admin handles that
 async function submitRequest(singerName, songs, eventId) {
+  // Generate a session ID the singer keeps in browser memory
+  const sessionId = crypto.randomUUID();
   const [req] = await sbFetch("/requests", {
     method: "POST",
-    body: JSON.stringify({ singer_name: singerName, event_id: eventId }),
+    body: JSON.stringify({ singer_name: singerName, event_id: eventId, session_id: sessionId }),
   });
   await sbFetch("/request_songs", {
     method: "POST",
@@ -38,10 +39,31 @@ async function submitRequest(singerName, songs, eventId) {
       song_artist: s.artist, song_key: s.key, song_genre: s.genre,
     }))),
   });
-  // Return bullpen position — count of pending requests before this one
   const bullpen = await sbFetch(`/requests?event_id=eq.${eventId}&select=id&order=created_at.asc`);
   const pos = (bullpen || []).findIndex(r => r.id === req.id) + 1;
-  return pos > 0 ? pos : (bullpen || []).length;
+  return { requestId: req.id, sessionId, bullpenPos: pos > 0 ? pos : (bullpen || []).length };
+}
+
+// Check singer status — first by request (bullpen), then by session_id in queue
+async function checkStatus(requestId, sessionId) {
+  // Check bullpen first
+  const req = await sbFetch(`/requests?id=eq.${requestId}&select=id,singer_name,event_id`);
+  if (req && req.length > 0) {
+    const bullpen = await sbFetch(`/requests?event_id=eq.${req[0].event_id}&select=id&order=created_at.asc`);
+    const pos = (bullpen || []).findIndex(r => r.id === requestId) + 1;
+    return { status: "bullpen", bullpenPos: pos > 0 ? pos : 1, singerName: req[0].singer_name };
+  }
+  // Check queue by session_id
+  if (sessionId) {
+    const queued = await sbFetch(`/queue?session_id=eq.${sessionId}&select=id,singer_name,song_title,song_artist,status&order=created_at.desc&limit=1`);
+    if (queued && queued.length > 0) {
+      const item = queued[0];
+      if (item.status === "done") return { status: "done", singerName: item.singer_name };
+      if (item.status === "playing") return { status: "playing", singerName: item.singer_name, song: item.song_title, artist: item.song_artist };
+      return { status: "queued", singerName: item.singer_name, song: item.song_title, artist: item.song_artist };
+    }
+  }
+  return { status: "unknown" };
 }
 
 const SONG_LIBRARY = [
@@ -60,7 +82,7 @@ const ALL_GENRES = ["All", ...Array.from(new Set(SONG_LIBRARY.map(s => s.genre))
 const css = `
   @import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,500;0,9..40,700&display=swap');
   *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
-  :root{--deep:#0e0825;--purple:#2d1b69;--gold:#f5c842;--gold-dim:#c9a020;--fd:'Bebas Neue',sans-serif;--fb:'DM Sans',sans-serif;}
+  :root{--deep:#0e0825;--purple:#2d1b69;--gold:#f5c842;--gold-dim:#c9a020;--green:#27ae60;--fd:'Bebas Neue',sans-serif;--fb:'DM Sans',sans-serif;}
   html,body{height:100%;font-family:var(--fb);background:var(--deep);color:white;}
   button{cursor:pointer;font-family:var(--fb);}
   input{font-family:var(--fb);}
@@ -72,62 +94,142 @@ const css = `
   .song-card.disabled{opacity:0.3;cursor:not-allowed;}
   .genre-pill{padding:6px 13px;border-radius:20px;font-size:13px;font-weight:500;border:1.5px solid rgba(255,255,255,.12);background:transparent;color:rgba(255,255,255,.5);cursor:pointer;transition:all .15s;white-space:nowrap;-webkit-tap-highlight-color:transparent;}
   .genre-pill.active{background:var(--gold);border-color:var(--gold);color:var(--deep);font-weight:700;}
-  .submit-btn{width:100%;padding:18px;border:none;border-radius:12px;font-family:var(--fd);font-size:22px;letter-spacing:3px;transition:all .2s;-webkit-tap-highlight-color:transparent;}
+  .submit-btn{width:100%;padding:18px;border:none;border-radius:12px;font-family:var(--fd);font-size:22px;letter-spacing:3px;transition:all .2s;}
   .submit-btn.ready{background:var(--gold);color:var(--deep);}
-  .submit-btn.ready:active{transform:scale(0.98);filter:brightness(0.95);}
   .submit-btn.not-ready{background:rgba(255,255,255,.07);color:rgba(255,255,255,.2);cursor:not-allowed;}
   @keyframes fadeUp{from{opacity:0;transform:translateY(20px)}to{opacity:1;transform:translateY(0)}}
   .fade-up{animation:fadeUp .4s ease forwards;}
   @keyframes pulse-ring{0%{box-shadow:0 0 0 0 rgba(245,200,66,.4)}70%{box-shadow:0 0 0 20px rgba(245,200,66,0)}100%{box-shadow:0 0 0 0 rgba(245,200,66,0)}}
   .pulse{animation:pulse-ring 2s ease infinite;}
+  @keyframes pulse-green{0%{box-shadow:0 0 0 0 rgba(39,174,96,.5)}70%{box-shadow:0 0 0 20px rgba(39,174,96,0)}100%{box-shadow:0 0 0 0 rgba(39,174,96,0)}}
+  .pulse-green{animation:pulse-green 1.5s ease infinite;}
 `;
 
-function Confirmation({ name, picks, bullpenPos, eventName, onReset }) {
-  return (
-    <div className="fade-up" style={{minHeight:"100dvh",background:"radial-gradient(ellipse at 50% 30%, rgba(100,60,200,.4) 0%, var(--deep) 65%)",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:"32px 24px",textAlign:"center"}}>
-      <div style={{fontSize:72,marginBottom:16,lineHeight:1}}>🎤</div>
-      <h1 style={{fontFamily:"var(--fd)",fontSize:56,color:"var(--gold)",letterSpacing:4,lineHeight:1}}>REQUEST RECEIVED</h1>
-      <p style={{color:"rgba(255,255,255,.55)",fontSize:17,marginTop:10,lineHeight:1.6}}>
-        You're in the bullpen, <strong style={{color:"white"}}>{name}</strong>.<br/>
-        Hang tight — the band will call you up soon.
-      </p>
-      {eventName && <div style={{marginTop:8,color:"rgba(255,255,255,.3)",fontSize:13,fontFamily:"var(--fd)",letterSpacing:2}}>{eventName}</div>}
+// ─── STATUS SCREEN ────────────────────────────────────────────────────────────
+function StatusScreen({ requestId, sessionId, initialName, initialPicks, onReset }) {
+  const [statusData, setStatusData] = useState({ status: "bullpen", bullpenPos: 1, singerName: initialName });
 
-      {/* Bullpen position */}
-      <div className="pulse" style={{margin:"28px 0",background:"rgba(245,200,66,.08)",border:"2px solid var(--gold)",borderRadius:20,padding:"22px 48px",width:"100%",maxWidth:300}}>
-        <div style={{fontFamily:"var(--fd)",fontSize:13,color:"var(--gold-dim)",letterSpacing:5,marginBottom:4}}>BULLPEN POSITION</div>
-        <div style={{fontFamily:"var(--fd)",fontSize:88,color:"white",lineHeight:1}}>#{bullpenPos}</div>
-        <div style={{color:"rgba(255,255,255,.35)",fontSize:13,marginTop:6}}>Wait to be called to the stage</div>
-      </div>
+  useEffect(() => {
+    const poll = async () => {
+      try {
+        const s = await checkStatus(requestId, sessionId);
+        setStatusData(s);
+      } catch(e) { console.error(e); }
+    };
+    poll();
+    const t = setInterval(poll, 4000);
+    return () => clearInterval(t);
+  }, [requestId, sessionId]);
 
-      {/* Song picks */}
-      <div style={{width:"100%",maxWidth:380,marginBottom:28,textAlign:"left"}}>
-        <div style={{fontFamily:"var(--fd)",fontSize:13,color:"var(--gold-dim)",letterSpacing:4,marginBottom:10}}>YOUR PICKS</div>
-        {picks.map((p,i) => (
-          <div key={p.id} style={{display:"flex",gap:14,alignItems:"center",padding:"10px 0",borderBottom:"1px solid rgba(255,255,255,.07)"}}>
-            <span style={{fontFamily:"var(--fd)",fontSize:22,color:"var(--gold-dim)",width:24,flexShrink:0}}>{i+1}</span>
-            <div>
-              <div style={{fontWeight:600,fontSize:14}}>{p.title}</div>
-              <div style={{color:"rgba(255,255,255,.4)",fontSize:12}}>{p.artist} · {p.genre}</div>
+  const { status, bullpenPos, singerName, song, artist } = statusData;
+
+  // ── BULLPEN ──
+  if (status === "bullpen") {
+    return (
+      <div className="fade-up" style={{minHeight:"100dvh",background:"radial-gradient(ellipse at 50% 30%, rgba(45,27,105,.6) 0%, var(--deep) 65%)",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:"32px 24px",textAlign:"center"}}>
+        <div style={{fontSize:64,marginBottom:12,lineHeight:1}}>🏟</div>
+        <h1 style={{fontFamily:"var(--fd)",fontSize:52,color:"var(--gold)",letterSpacing:4,lineHeight:1}}>REQUEST RECEIVED</h1>
+        <p style={{color:"rgba(255,255,255,.5)",fontSize:17,marginTop:10,lineHeight:1.7,maxWidth:320}}>
+          You're in the bullpen, <strong style={{color:"white"}}>{singerName}</strong>.<br/>
+          Hang tight — the band will call you up.
+        </p>
+
+        <div className="pulse" style={{margin:"28px 0",background:"rgba(245,200,66,.07)",border:"2px solid var(--gold)",borderRadius:20,padding:"22px 48px",width:"100%",maxWidth:280}}>
+          <div style={{fontFamily:"var(--fd)",fontSize:12,color:"var(--gold-dim)",letterSpacing:5,marginBottom:4}}>BULLPEN POSITION</div>
+          <div style={{fontFamily:"var(--fd)",fontSize:80,color:"white",lineHeight:1}}>#{bullpenPos}</div>
+          <div style={{color:"rgba(255,255,255,.3)",fontSize:13,marginTop:4}}>Wait to be called</div>
+        </div>
+
+        <div style={{padding:"14px 18px",background:"rgba(255,255,255,.04)",border:"1px solid rgba(255,255,255,.08)",borderRadius:12,maxWidth:340,width:"100%",marginBottom:28}}>
+          <div style={{fontFamily:"var(--fd)",fontSize:11,color:"var(--gold-dim)",letterSpacing:3,marginBottom:8}}>YOUR PICKS</div>
+          {initialPicks.map((p,i) => (
+            <div key={p.id} style={{display:"flex",gap:10,padding:"6px 0",borderBottom:"1px solid rgba(255,255,255,.05)",alignItems:"center"}}>
+              <span style={{fontFamily:"var(--fd)",fontSize:18,color:"rgba(245,200,66,.4)",width:20,flexShrink:0}}>{i+1}</span>
+              <div>
+                <div style={{fontWeight:600,fontSize:13}}>{p.title}</div>
+                <div style={{color:"rgba(255,255,255,.35)",fontSize:11}}>{p.artist}</div>
+              </div>
             </div>
-          </div>
-        ))}
-      </div>
+          ))}
+        </div>
 
-      <div style={{padding:"14px 20px",background:"rgba(255,255,255,.04)",border:"1px solid rgba(255,255,255,.1)",borderRadius:12,marginBottom:28,maxWidth:380,width:"100%"}}>
-        <div style={{fontSize:13,color:"rgba(255,255,255,.5)",lineHeight:1.6}}>
-          🎸 The band will choose one of your songs and add you to the queue. Keep an eye on the stage!
+        <div style={{fontSize:12,color:"rgba(255,255,255,.2)",marginBottom:24,fontFamily:"var(--fd)",letterSpacing:2}}>
+          THIS PAGE UPDATES AUTOMATICALLY
+        </div>
+
+        <button onClick={onReset} style={{background:"transparent",border:"2px solid rgba(245,200,66,.3)",color:"rgba(245,200,66,.6)",padding:"10px 28px",borderRadius:10,fontFamily:"var(--fd)",fontSize:15,letterSpacing:2}}>
+          SUBMIT ANOTHER REQUEST
+        </button>
+      </div>
+    );
+  }
+
+  // ── QUEUED ──
+  if (status === "queued") {
+    return (
+      <div className="fade-up" style={{minHeight:"100dvh",background:"radial-gradient(ellipse at 50% 30%, rgba(45,27,105,.7) 0%, var(--deep) 65%)",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:"32px 24px",textAlign:"center"}}>
+        <div style={{fontSize:64,marginBottom:12,lineHeight:1}}>🎵</div>
+        <h1 style={{fontFamily:"var(--fd)",fontSize:52,color:"var(--gold)",letterSpacing:4,lineHeight:1}}>YOU'RE IN THE QUEUE!</h1>
+        <p style={{color:"rgba(255,255,255,.5)",fontSize:17,marginTop:10,lineHeight:1.7}}>
+          Get ready, <strong style={{color:"white"}}>{singerName}</strong>
+        </p>
+
+        <div className="pulse" style={{margin:"28px 0",background:"rgba(245,200,66,.08)",border:"2px solid var(--gold)",borderRadius:20,padding:"24px 48px",width:"100%",maxWidth:320}}>
+          <div style={{fontFamily:"var(--fd)",fontSize:12,color:"var(--gold-dim)",letterSpacing:4,marginBottom:8}}>YOUR SONG</div>
+          <div style={{fontFamily:"var(--fd)",fontSize:32,color:"white",letterSpacing:2,lineHeight:1.2}}>{song}</div>
+          <div style={{color:"rgba(255,255,255,.5)",fontSize:16,marginTop:6}}>{artist}</div>
+        </div>
+
+        <div style={{padding:"14px 18px",background:"rgba(39,174,96,.08)",border:"1px solid rgba(39,174,96,.3)",borderRadius:12,maxWidth:320,width:"100%",marginBottom:28}}>
+          <div style={{fontSize:14,color:"rgba(255,255,255,.6)",lineHeight:1.6}}>
+            🎸 The band has added you to the queue. Stay close to the stage!
+          </div>
+        </div>
+
+        <div style={{fontSize:12,color:"rgba(255,255,255,.2)",fontFamily:"var(--fd)",letterSpacing:2}}>THIS PAGE UPDATES AUTOMATICALLY</div>
+      </div>
+    );
+  }
+
+  // ── PLAYING ──
+  if (status === "playing") {
+    return (
+      <div className="fade-up" style={{minHeight:"100dvh",background:"radial-gradient(ellipse at 50% 40%, rgba(39,174,96,.3) 0%, var(--deep) 65%)",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:"32px 24px",textAlign:"center"}}>
+        <div style={{fontSize:80,marginBottom:12,lineHeight:1}}>🎤</div>
+        <h1 style={{fontFamily:"var(--fd)",fontSize:64,color:"var(--green)",letterSpacing:4,lineHeight:1}}>GET UP THERE!</h1>
+        <p style={{color:"rgba(255,255,255,.7)",fontSize:20,marginTop:10}}>
+          It's your time, <strong style={{color:"white"}}>{singerName}</strong>!
+        </p>
+        <div className="pulse-green" style={{margin:"28px 0",background:"rgba(39,174,96,.1)",border:"2px solid var(--green)",borderRadius:20,padding:"24px 48px",width:"100%",maxWidth:320}}>
+          <div style={{fontFamily:"var(--fd)",fontSize:36,color:"white",lineHeight:1.2}}>{song}</div>
+          <div style={{color:"rgba(255,255,255,.5)",fontSize:18,marginTop:6}}>{artist}</div>
         </div>
       </div>
+    );
+  }
 
-      <button onClick={onReset} style={{background:"transparent",border:"2px solid rgba(245,200,66,.4)",color:"var(--gold)",padding:"12px 36px",borderRadius:10,fontFamily:"var(--fd)",fontSize:17,letterSpacing:2}}>
-        REQUEST AGAIN
-      </button>
-      <div style={{marginTop:36,color:"rgba(255,255,255,.12)",fontSize:12,letterSpacing:2,fontFamily:"var(--fd)"}}>PURPLE SANDWICH · WATKINS DRINKERY</div>
-    </div>
-  );
+  // ── DONE ──
+  if (status === "done") {
+    return (
+      <div className="fade-up" style={{minHeight:"100dvh",background:"radial-gradient(ellipse at 50% 30%, rgba(45,27,105,.5) 0%, var(--deep) 65%)",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:"32px 24px",textAlign:"center"}}>
+        <div style={{fontSize:72,marginBottom:12,lineHeight:1}}>⭐</div>
+        <h1 style={{fontFamily:"var(--fd)",fontSize:56,color:"var(--gold)",letterSpacing:4,lineHeight:1}}>GREAT JOB!</h1>
+        <p style={{color:"rgba(255,255,255,.5)",fontSize:17,marginTop:10}}>Thanks for singing, <strong style={{color:"white"}}>{singerName}</strong>!</p>
+        <div style={{marginTop:32,marginBottom:28,padding:"16px 24px",background:"rgba(255,255,255,.04)",border:"1px solid rgba(255,255,255,.1)",borderRadius:12,maxWidth:320,width:"100%"}}>
+          <div style={{fontSize:14,color:"rgba(255,255,255,.5)",lineHeight:1.6}}>Want to sing again? Submit another request below.</div>
+        </div>
+        <button onClick={onReset} className="submit-btn ready" style={{maxWidth:320,fontSize:18}}>
+          REQUEST AGAIN
+        </button>
+      </div>
+    );
+  }
+
+  // fallback
+  return null;
 }
 
+// ─── MAIN APP ─────────────────────────────────────────────────────────────────
 export default function SingerApp() {
   const [activeEvent, setActiveEvent] = useState(null);
   const [eventLoading, setEventLoading] = useState(true);
@@ -135,7 +237,7 @@ export default function SingerApp() {
   const [search, setSearch] = useState("");
   const [genre, setGenre] = useState("All");
   const [picks, setPicks] = useState([]);
-  const [submitted, setSubmitted] = useState(null);
+  const [submitted, setSubmitted] = useState(null); // { requestId, name, picks }
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
@@ -160,17 +262,27 @@ export default function SingerApp() {
     if (!name.trim() || picks.length === 0 || loading || !activeEvent) return;
     setLoading(true); setError(null);
     try {
-      const pos = await submitRequest(name.trim(), picks, activeEvent.id);
-      setSubmitted({ name: name.trim(), picks: [...picks], bullpenPos: pos, eventName: activeEvent.name });
+      const { requestId, sessionId } = await submitRequest(name.trim(), picks, activeEvent.id);
+      setSubmitted({ requestId, sessionId, name: name.trim(), picks: [...picks] });
     } catch(e) { setError("Couldn't submit — please try again."); console.error(e); }
     finally { setLoading(false); }
   };
 
+  const handleReset = () => {
+    setSubmitted(null); setName(""); setPicks([]); setSearch(""); setGenre("All");
+  };
+
+  // Show status screen after submission
   if (submitted) {
     return (
       <>
         <style>{css}</style>
-        <Confirmation {...submitted} onReset={() => { setSubmitted(null); setName(""); setPicks([]); setSearch(""); setGenre("All"); }} />
+        <StatusScreen
+          requestId={submitted.requestId}
+          initialName={submitted.name}
+          initialPicks={submitted.picks}
+          onReset={handleReset}
+        />
       </>
     );
   }

@@ -330,9 +330,9 @@ function BullpenCard({ req, position, eventId, onAddedToQueue }) {
 
       // Insert queue row
       const payload = {
-        request_id: req.id,
         event_id: eventId,
         singer_name: req.singer_name,
+        session_id: req.session_id,
         song_id: Number(selectedSong.song_id),
         song_title: selectedSong.song_title,
         song_artist: selectedSong.song_artist,
