@@ -92,7 +92,7 @@ function Nav({ tab, setTab }) {
           <div style={{fontFamily:"var(--fd)",fontSize:10,color:"rgba(245,200,66,.35)",letterSpacing:4}}>BAND CONTROL</div>
         </div>
       </div>
-      {[["events","🎪 Events"],["queue","🎵 Queue"],["prompter","🎛 Prompter"]].map(([t,label]) => (
+      {[["events","🎪 Events"],["queue","🎵 Queue"],["songs","🎶 Songs"],["prompter","🎛 Prompter"]].map(([t,label]) => (
         <button key={t} className={`tab-btn${tab===t?" active":""}`} onClick={()=>setTab(t)}>{label}</button>
       ))}
       <a href="/stage" target="_blank" rel="noopener noreferrer" style={{
@@ -741,7 +741,236 @@ function PrompterTab() {
   );
 }
 
-// ─── ROOT ─────────────────────────────────────────────────────────────────────
+// ─── GOOGLE DRIVE SYNC ────────────────────────────────────────────────────────
+const GOOGLE_CLIENT_ID = "789357706640-ckolnet2fi5kb2bui1phsrd0kpe3o8b8.apps.googleusercontent.com";
+const DRIVE_FOLDER_ID = "1rse9x9mShwMXKJ1iRj34Cv21Wa21s06O";
+const DRIVE_SCOPE = "https://www.googleapis.com/auth/drive.readonly";
+
+// Parse "Lead Sheet - Artist - Song Title" style filenames
+function parseFilename(filename) {
+  // Remove file extension
+  let name = filename.replace(/\.(docx?|pdf|gdoc)$/i, "");
+  // Remove "Lead Sheet" prefix (various forms)
+  name = name.replace(/^lead\s*sheet\s*[-–—:]\s*/i, "");
+  // Split on " - " or " – " or " — "
+  const parts = name.split(/\s*[-–—]\s*/).map(p => p.trim()).filter(Boolean);
+
+  if (parts.length >= 2) {
+    return { artist: parts[0], title: parts.slice(1).join(" - "), parsed: true };
+  } else if (parts.length === 1) {
+    return { artist: "", title: parts[0], parsed: false };
+  }
+  return { artist: "", title: filename, parsed: false };
+}
+
+function loadGoogleScript() {
+  return new Promise((resolve, reject) => {
+    if (window.google?.accounts?.oauth2) { resolve(); return; }
+    const script = document.createElement("script");
+    script.src = "https://accounts.google.com/gsi/client";
+    script.async = true;
+    script.onload = resolve;
+    script.onerror = reject;
+    document.body.appendChild(script);
+  });
+}
+
+function SongsTab() {
+  const [songs, setSongs] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [syncing, setSyncing] = useState(false);
+  const [syncResult, setSyncResult] = useState(null);
+  const [error, setError] = useState(null);
+  const [scriptReady, setScriptReady] = useState(false);
+
+  const loadSongs = async () => {
+    try {
+      const list = await sbFetch("/songs?order=artist.asc,title.asc");
+      setSongs(list || []);
+    } catch(e) { console.error(e); }
+    finally { setLoading(false); }
+  };
+
+  useEffect(() => {
+    loadSongs();
+    loadGoogleScript().then(() => setScriptReady(true)).catch(e => setError("Failed to load Google sign-in"));
+  }, []);
+
+  const connectAndSync = () => {
+    if (!scriptReady || !window.google) { setError("Google sign-in not ready yet — try again in a moment"); return; }
+    setError(null);
+    setSyncResult(null);
+
+    const client = window.google.accounts.oauth2.initTokenClient({
+      client_id: GOOGLE_CLIENT_ID,
+      scope: DRIVE_SCOPE,
+      callback: async (response) => {
+        if (response.error) { setError("Google sign-in failed: " + response.error); return; }
+        await runSync(response.access_token);
+      },
+    });
+    client.requestAccessToken();
+  };
+
+  const runSync = async (accessToken) => {
+    setSyncing(true);
+    try {
+      // List files in the Drive folder
+      const listUrl = `https://www.googleapis.com/drive/v3/files?q='${DRIVE_FOLDER_ID}'+in+parents+and+trashed=false&fields=files(id,name,mimeType)&pageSize=1000`;
+      const res = await fetch(listUrl, { headers: { Authorization: `Bearer ${accessToken}` } });
+      if (!res.ok) throw new Error(`Drive API error: ${res.status}`);
+      const data = await res.json();
+      const files = data.files || [];
+
+      if (files.length === 0) {
+        setSyncResult({ total: 0, added: 0, updated: 0, unparsed: 0 });
+        setSyncing(false);
+        return;
+      }
+
+      // Get existing songs to know what's new vs updated
+      const existing = await sbFetch("/songs?select=drive_file_id");
+      const existingIds = new Set((existing || []).map(s => s.drive_file_id));
+
+      let added = 0, updated = 0, unparsed = 0;
+
+      for (const file of files) {
+        const parsed = parseFilename(file.name);
+        if (!parsed.parsed) unparsed++;
+
+        const payload = {
+          title: parsed.title,
+          artist: parsed.artist,
+          raw_filename: file.name,
+          drive_file_id: file.id,
+          last_synced: new Date().toISOString(),
+        };
+
+        if (existingIds.has(file.id)) {
+          await sbFetch(`/songs?drive_file_id=eq.${file.id}`, {
+            method: "PATCH",
+            body: JSON.stringify(payload),
+          });
+          updated++;
+        } else {
+          await sbFetch("/songs", {
+            method: "POST",
+            body: JSON.stringify(payload),
+          });
+          added++;
+        }
+      }
+
+      setSyncResult({ total: files.length, added, updated, unparsed });
+      await loadSongs();
+    } catch(e) {
+      console.error(e);
+      setError("Sync failed: " + e.message);
+    } finally {
+      setSyncing(false);
+    }
+  };
+
+  const updateSong = async (id, field, value) => {
+    try {
+      await sbFetch(`/songs?id=eq.${id}`, { method: "PATCH", body: JSON.stringify({ [field]: value }) });
+      setSongs(songs.map(s => s.id === id ? { ...s, [field]: value } : s));
+    } catch(e) { console.error(e); }
+  };
+
+  const deleteSong = async (id) => {
+    try {
+      await sbFetch(`/songs?id=eq.${id}`, { method: "DELETE", headers: { "Prefer": "" } });
+      setSongs(songs.filter(s => s.id !== id));
+    } catch(e) { console.error(e); }
+  };
+
+  const unparsedSongs = songs.filter(s => !s.artist);
+
+  return (
+    <div style={{maxWidth:760,margin:"0 auto",padding:"28px 24px"}}>
+
+      {/* Sync section */}
+      <div style={{background:"rgba(255,255,255,.03)",border:"1px solid var(--border)",borderRadius:14,padding:"24px",marginBottom:28}}>
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:16}}>
+          <div>
+            <div style={{fontFamily:"var(--fd)",fontSize:20,color:"var(--gold)",letterSpacing:2,marginBottom:4}}>📁 GOOGLE DRIVE SYNC</div>
+            <div style={{fontSize:13,color:"rgba(255,255,255,.4)",lineHeight:1.6}}>
+              Scans your chord sheet folder and updates the song library.<br/>
+              Run this whenever you add new lead sheets.
+            </div>
+          </div>
+          <button onClick={connectAndSync} disabled={syncing} className="btn-gold" style={{padding:"12px 24px",fontSize:15,flexShrink:0}}>
+            {syncing ? "SYNCING…" : "🔄 SYNC SONGS"}
+          </button>
+        </div>
+
+        {error && (
+          <div style={{marginTop:14,padding:"10px 14px",background:"rgba(192,57,43,.15)",border:"1px solid rgba(192,57,43,.4)",borderRadius:8,color:"#e74c3c",fontSize:13}}>
+            ⚠️ {error}
+          </div>
+        )}
+
+        {syncResult && (
+          <div className="fade-in" style={{marginTop:14,padding:"14px 16px",background:"rgba(39,174,96,.08)",border:"1px solid rgba(39,174,96,.3)",borderRadius:10}}>
+            <div style={{fontFamily:"var(--fd)",fontSize:14,color:"var(--green)",letterSpacing:1,marginBottom:6}}>✓ SYNC COMPLETE</div>
+            <div style={{fontSize:13,color:"rgba(255,255,255,.6)",lineHeight:1.6}}>
+              Found {syncResult.total} files · {syncResult.added} new · {syncResult.updated} updated
+              {syncResult.unparsed > 0 && <> · <span style={{color:"var(--gold)"}}>{syncResult.unparsed} need review</span></>}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Needs review */}
+      {unparsedSongs.length > 0 && (
+        <div style={{marginBottom:28}}>
+          <div style={{fontFamily:"var(--fd)",fontSize:13,color:"var(--gold2)",letterSpacing:3,marginBottom:12}}>⚠️ NEEDS REVIEW ({unparsedSongs.length})</div>
+          <div style={{display:"flex",flexDirection:"column",gap:8}}>
+            {unparsedSongs.map(song => (
+              <div key={song.id} style={{display:"flex",alignItems:"center",gap:10,padding:"12px 14px",background:"rgba(245,200,66,.05)",border:"1px solid rgba(245,200,66,.2)",borderRadius:10}}>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{fontSize:12,color:"rgba(255,255,255,.3)",marginBottom:4,fontFamily:"var(--fm)"}}>{song.raw_filename}</div>
+                  <div style={{display:"flex",gap:8}}>
+                    <input className="input-field" placeholder="Artist" defaultValue={song.artist || ""}
+                      onBlur={e => updateSong(song.id, "artist", e.target.value)} style={{flex:1,fontSize:13,padding:"7px 10px"}} />
+                    <input className="input-field" placeholder="Title" defaultValue={song.title || ""}
+                      onBlur={e => updateSong(song.id, "title", e.target.value)} style={{flex:1,fontSize:13,padding:"7px 10px"}} />
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Song library */}
+      <div style={{fontFamily:"var(--fd)",fontSize:13,color:"rgba(255,255,255,.25)",letterSpacing:3,marginBottom:14}}>SONG LIBRARY ({songs.length})</div>
+      {loading && <div style={{color:"rgba(255,255,255,.3)",padding:"20px 0"}}>Loading…</div>}
+      {!loading && songs.length === 0 && (
+        <div style={{textAlign:"center",padding:"50px 24px",color:"rgba(255,255,255,.2)"}}>
+          <div style={{fontSize:40,marginBottom:12}}>🎶</div>
+          <div style={{fontFamily:"var(--fd)",fontSize:18,letterSpacing:2,marginBottom:8}}>NO SONGS YET</div>
+          <div style={{fontSize:13}}>Click "Sync Songs" above to import from Google Drive</div>
+        </div>
+      )}
+      <div style={{display:"flex",flexDirection:"column",gap:6}}>
+        {songs.map(song => (
+          <div key={song.id} style={{display:"flex",alignItems:"center",gap:12,padding:"11px 14px",background:"rgba(255,255,255,.03)",border:"1px solid rgba(255,255,255,.07)",borderRadius:10}}>
+            <div style={{flex:1,minWidth:0}}>
+              <div style={{fontWeight:600,fontSize:14}}>{song.title}</div>
+              <div style={{color:"rgba(255,255,255,.4)",fontSize:12}}>{song.artist || "—"}</div>
+            </div>
+            {song.song_key && <span style={{fontFamily:"var(--fm)",fontSize:12,color:"var(--gold2)"}}>{song.song_key}</span>}
+            <button onClick={() => deleteSong(song.id)} style={{padding:"6px 10px",background:"rgba(192,57,43,.12)",border:"none",borderRadius:6,color:"var(--red)",fontSize:13,flexShrink:0}}>✕</button>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+
 export default function BandApp() {
   const [tab, setTab] = useState("events");
 
@@ -753,6 +982,7 @@ export default function BandApp() {
         <div style={{flex:1,overflowY:"auto"}}>
           {tab==="events" && <EventsTab />}
           {tab==="queue" && <QueueTab />}
+          {tab==="songs" && <SongsTab />}
           {tab==="prompter" && <PrompterTab />}
         </div>
       </div>
