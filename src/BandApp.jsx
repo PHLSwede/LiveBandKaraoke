@@ -775,6 +775,39 @@ function loadGoogleScript() {
   });
 }
 
+// Recursively list all files under a folder, tracking genre (top-level subfolder name)
+async function listDriveFilesRecursive(accessToken, folderId, genre = null, depth = 0) {
+  const q = `'${folderId}' in parents and trashed = false`;
+  const url = `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(q)}&fields=${encodeURIComponent("files(id,name,mimeType)")}&pageSize=1000`;
+  const res = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } });
+  if (!res.ok) {
+    const errText = await res.text();
+    console.error(`Drive API error at depth ${depth} for folder ${folderId}:`, res.status, errText);
+    throw new Error(`Drive API error: ${res.status}`);
+  }
+  const data = await res.json();
+  const items = data.files || [];
+  console.log(`Depth ${depth}, folder ${folderId} (genre=${genre}): found ${items.length} items`, items.map(i => `${i.name} [${i.mimeType}]`));
+
+  let results = [];
+  for (const item of items) {
+    if (item.mimeType === "application/vnd.google-apps.folder") {
+      // depth 0 = genre folders; genre name carries down to deeper levels
+      const nextGenre = depth === 0 ? item.name : genre;
+      const nested = await listDriveFilesRecursive(accessToken, item.id, nextGenre, depth + 1);
+      results = results.concat(nested);
+    } else {
+      // Only include files starting with "Lead Sheet"
+      if (/^lead\s*sheet/i.test(item.name)) {
+        results.push({ ...item, genre });
+      } else {
+        console.log(`Skipping (doesn't start with "Lead Sheet"): ${item.name}`);
+      }
+    }
+  }
+  return results;
+}
+
 function SongsTab() {
   const [songs, setSongs] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -815,12 +848,8 @@ function SongsTab() {
   const runSync = async (accessToken) => {
     setSyncing(true);
     try {
-      // List files in the Drive folder
-      const listUrl = `https://www.googleapis.com/drive/v3/files?q='${DRIVE_FOLDER_ID}'+in+parents+and+trashed=false&fields=files(id,name,mimeType)&pageSize=1000`;
-      const res = await fetch(listUrl, { headers: { Authorization: `Bearer ${accessToken}` } });
-      if (!res.ok) throw new Error(`Drive API error: ${res.status}`);
-      const data = await res.json();
-      const files = data.files || [];
+      // Recursively scan: root → genre folders → artist folders → lead sheet files
+      const files = await listDriveFilesRecursive(accessToken, DRIVE_FOLDER_ID);
 
       if (files.length === 0) {
         setSyncResult({ total: 0, added: 0, updated: 0, unparsed: 0 });
@@ -841,6 +870,7 @@ function SongsTab() {
         const payload = {
           title: parsed.title,
           artist: parsed.artist,
+          genre: file.genre || null,
           raw_filename: file.name,
           drive_file_id: file.id,
           last_synced: new Date().toISOString(),
