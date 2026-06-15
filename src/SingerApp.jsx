@@ -36,7 +36,7 @@ async function submitRequest(singerName, songs, eventId) {
     body: JSON.stringify(songs.map(s => ({
       request_id: req.id,
       song_id: s.id, song_title: s.title,
-      song_artist: s.artist, song_key: s.key, song_genre: s.genre,
+      song_artist: s.artist, song_key: s.song_key || "", song_genre: s.genre || "",
     }))),
   });
   const bullpen = await sbFetch(`/requests?event_id=eq.${eventId}&select=id&order=created_at.asc`);
@@ -66,18 +66,26 @@ async function checkStatus(requestId, sessionId) {
   return { status: "unknown" };
 }
 
-const SONG_LIBRARY = [
-  { id: 1, title: "Wonderwall", artist: "Oasis", key: "Em", genre: "Rock" },
-  { id: 2, title: "Sweet Home Chicago", artist: "Robert Johnson", key: "E", genre: "Blues" },
-  { id: 3, title: "Brown Eyed Girl", artist: "Van Morrison", key: "G", genre: "Pop Rock" },
-  { id: 4, title: "Superstition", artist: "Stevie Wonder", key: "Ebm", genre: "Funk/Soul" },
-  { id: 5, title: "Valerie", artist: "Amy Winehouse", key: "C", genre: "Soul" },
-  { id: 6, title: "Mr. Brightside", artist: "The Killers", key: "C#", genre: "Indie Rock" },
-  { id: 7, title: "I Will Survive", artist: "Gloria Gaynor", key: "Am", genre: "Disco" },
-  { id: 8, title: "Fly Me To The Moon", artist: "Frank Sinatra", key: "Am", genre: "Jazz" },
-];
+// Fetch distinct genres for filter pills
+async function fetchGenres() {
+  const songs = await sbFetch("/songs?select=genre&genre=not.is.null");
+  const genres = new Set((songs || []).map(s => s.genre).filter(Boolean));
+  return ["All", ...Array.from(genres).sort()];
+}
 
-const ALL_GENRES = ["All", ...Array.from(new Set(SONG_LIBRARY.map(s => s.genre)))];
+// Search songs by title/artist, optionally filtered by genre
+async function searchSongs(query, genre, limit = 30) {
+  let path = `/songs?select=id,title,artist,genre,song_key&order=title.asc&limit=${limit}`;
+  if (genre && genre !== "All") {
+    path += `&genre=eq.${encodeURIComponent(genre)}`;
+  }
+  if (query && query.trim()) {
+    // Search title OR artist, case-insensitive
+    const q = encodeURIComponent(`%${query.trim()}%`);
+    path += `&or=(title.ilike.${q},artist.ilike.${q})`;
+  }
+  return await sbFetch(path) || [];
+}
 
 const css = `
   @import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,500;0,9..40,700&display=swap');
@@ -236,6 +244,9 @@ export default function SingerApp() {
   const [name, setName] = useState("");
   const [search, setSearch] = useState("");
   const [genre, setGenre] = useState("All");
+  const [genres, setGenres] = useState(["All"]);
+  const [results, setResults] = useState([]);
+  const [searching, setSearching] = useState(false);
   const [picks, setPicks] = useState([]);
   const [submitted, setSubmitted] = useState(null); // { requestId, name, picks }
   const [loading, setLoading] = useState(false);
@@ -247,11 +258,27 @@ export default function SingerApp() {
     return () => clearInterval(t);
   }, []);
 
-  const filtered = SONG_LIBRARY.filter(s => {
-    const matchesGenre = genre === "All" || s.genre === genre;
-    const matchesSearch = [s.title, s.artist].some(f => f.toLowerCase().includes(search.toLowerCase()));
-    return matchesGenre && matchesSearch;
-  });
+  // Load genre list once
+  useEffect(() => {
+    fetchGenres().then(setGenres).catch(console.error);
+  }, []);
+
+  // Debounced search — runs when search text or genre changes
+  useEffect(() => {
+    // Don't search if both empty (search="" and genre="All") to avoid loading everything
+    if (!search.trim() && genre === "All") { setResults([]); return; }
+    setSearching(true);
+    const t = setTimeout(() => {
+      searchSongs(search, genre)
+        .then(setResults)
+        .catch(console.error)
+        .finally(() => setSearching(false));
+    }, 300);
+    return () => clearTimeout(t);
+  }, [search, genre]);
+
+  const filtered = results;
+
 
   const toggle = (song) => {
     if (picks.find(p => p.id === song.id)) { setPicks(picks.filter(p => p.id !== song.id)); return; }
@@ -330,13 +357,29 @@ export default function SingerApp() {
           <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search songs or artists…"
             style={{width:"100%",padding:"11px 14px",background:"rgba(255,255,255,.05)",border:"1.5px solid rgba(255,255,255,.1)",borderRadius:10,color:"white",fontSize:13,outline:"none",marginBottom:10}} />
 
+          {!searching && filtered.length >= 30 && (
+            <div style={{fontSize:11,color:"rgba(255,255,255,.2)",marginBottom:8,textAlign:"right"}}>
+              Showing first 30 — refine your search for more specific results
+            </div>
+          )}
+
           <div style={{display:"flex",gap:7,overflowX:"auto",paddingBottom:10,marginBottom:10}}>
-            {ALL_GENRES.map(g => <button key={g} className={`genre-pill${genre===g?" active":""}`} onClick={()=>setGenre(g)}>{g}</button>)}
+            {genres.map(g => <button key={g} className={`genre-pill${genre===g?" active":""}`} onClick={()=>setGenre(g)}>{g}</button>)}
           </div>
 
           <div style={{display:"flex",flexDirection:"column",gap:7,marginBottom:20}}>
-            {filtered.length===0 && <div style={{textAlign:"center",padding:"28px",color:"rgba(255,255,255,.25)",fontSize:13}}>No songs found</div>}
-            {filtered.map(song => {
+            {!search.trim() && genre === "All" && (
+              <div style={{textAlign:"center",padding:"32px 16px",color:"rgba(255,255,255,.25)",fontSize:13,lineHeight:1.6}}>
+                🔍 Search for a song or artist,<br/>or pick a genre to browse
+              </div>
+            )}
+            {searching && (
+              <div style={{textAlign:"center",padding:"20px",color:"rgba(255,255,255,.2)",fontSize:13}}>Searching…</div>
+            )}
+            {!searching && (search.trim() || genre !== "All") && filtered.length===0 && (
+              <div style={{textAlign:"center",padding:"28px",color:"rgba(255,255,255,.25)",fontSize:13}}>No songs found</div>
+            )}
+            {!searching && filtered.map(song => {
               const selected = !!picks.find(p => p.id===song.id);
               const disabled = !selected && picks.length>=3;
               return (
@@ -349,8 +392,8 @@ export default function SingerApp() {
                     <div style={{color:"rgba(255,255,255,.4)",fontSize:12,marginTop:2}}>{song.artist}</div>
                   </div>
                   <div style={{textAlign:"right",flexShrink:0}}>
-                    <div style={{fontSize:11,color:"rgba(255,255,255,.25)",marginBottom:2}}>{song.genre}</div>
-                    <div style={{fontFamily:"monospace",fontSize:11,color:selected?"var(--gold)":"rgba(255,255,255,.3)"}}>{song.key}</div>
+                    {song.genre && <div style={{fontSize:11,color:"rgba(255,255,255,.25)",marginBottom:2}}>{song.genre}</div>}
+                    {song.song_key && <div style={{fontFamily:"monospace",fontSize:11,color:selected?"var(--gold)":"rgba(255,255,255,.3)"}}>{song.song_key}</div>}
                   </div>
                 </div>
               );
