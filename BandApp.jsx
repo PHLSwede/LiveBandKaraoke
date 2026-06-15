@@ -777,17 +777,11 @@ function loadGoogleScript() {
 
 // Recursively list all files under a folder, tracking genre (top-level subfolder name)
 async function listDriveFilesRecursive(accessToken, folderId, genre = null, depth = 0) {
-  const q = `'${folderId}' in parents and trashed = false`;
-  const url = `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(q)}&fields=${encodeURIComponent("files(id,name,mimeType)")}&pageSize=1000`;
+  const url = `https://www.googleapis.com/drive/v3/files?q='${folderId}'+in+parents+and+trashed=false&fields=files(id,name,mimeType)&pageSize=1000`;
   const res = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } });
-  if (!res.ok) {
-    const errText = await res.text();
-    console.error(`Drive API error at depth ${depth} for folder ${folderId}:`, res.status, errText);
-    throw new Error(`Drive API error: ${res.status}`);
-  }
+  if (!res.ok) throw new Error(`Drive API error: ${res.status}`);
   const data = await res.json();
   const items = data.files || [];
-  console.log(`Depth ${depth}, folder ${folderId} (genre=${genre}): found ${items.length} items`, items.map(i => `${i.name} [${i.mimeType}]`));
 
   let results = [];
   for (const item of items) {
@@ -800,8 +794,6 @@ async function listDriveFilesRecursive(accessToken, folderId, genre = null, dept
       // Only include files starting with "Lead Sheet"
       if (/^lead\s*sheet/i.test(item.name)) {
         results.push({ ...item, genre });
-      } else {
-        console.log(`Skipping (doesn't start with "Lead Sheet"): ${item.name}`);
       }
     }
   }
