@@ -778,7 +778,7 @@ function loadGoogleScript() {
 // Recursively list all files under a folder, tracking genre (top-level subfolder name)
 async function listDriveFilesRecursive(accessToken, folderId, genre = null, depth = 0) {
   const q = `'${folderId}' in parents and trashed = false`;
-  const url = `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(q)}&fields=${encodeURIComponent("files(id,name,mimeType)")}&pageSize=1000`;
+  const url = `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(q)}&fields=${encodeURIComponent("files(id,name,mimeType,shortcutDetails)")}&pageSize=1000`;
   const res = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } });
   if (!res.ok) {
     const errText = await res.text();
@@ -791,17 +791,26 @@ async function listDriveFilesRecursive(accessToken, folderId, genre = null, dept
 
   let results = [];
   for (const item of items) {
-    if (item.mimeType === "application/vnd.google-apps.folder") {
+    let mimeType = item.mimeType;
+    let targetId = item.id;
+
+    // Resolve shortcuts to their target
+    if (mimeType === "application/vnd.google-apps.shortcut" && item.shortcutDetails) {
+      mimeType = item.shortcutDetails.targetMimeType;
+      targetId = item.shortcutDetails.targetId;
+    }
+
+    if (mimeType === "application/vnd.google-apps.folder") {
       // depth 0 = genre folders; genre name carries down to deeper levels
       const nextGenre = depth === 0 ? item.name : genre;
-      const nested = await listDriveFilesRecursive(accessToken, item.id, nextGenre, depth + 1);
+      const nested = await listDriveFilesRecursive(accessToken, targetId, nextGenre, depth + 1);
       results = results.concat(nested);
     } else {
       // Only include files starting with "Lead Sheet"
       if (/^lead\s*sheet/i.test(item.name)) {
-        results.push({ ...item, genre });
+        results.push({ ...item, id: targetId, genre });
       } else {
-        console.log(`Skipping (doesn't start with "Lead Sheet"): ${item.name}`);
+        console.log(`Skipping (doesn't start with "Lead Sheet"): ${item.name} [${mimeType}]`);
       }
     }
   }
@@ -915,6 +924,18 @@ function SongsTab() {
     } catch(e) { console.error(e); }
   };
 
+  const clearAllSongs = async () => {
+    if (!window.confirm(`Delete all ${songs.length} songs from the library? This cannot be undone — you can re-sync from Drive after.`)) return;
+    try {
+      await fetch(`${SUPABASE_URL}/rest/v1/songs?id=neq.00000000-0000-0000-0000-000000000000`, {
+        method: "DELETE",
+        headers: { "apikey": SUPABASE_KEY, "Authorization": `Bearer ${SUPABASE_KEY}` },
+      });
+      setSongs([]);
+      setSyncResult(null);
+    } catch(e) { console.error(e); }
+  };
+
   const unparsedSongs = songs.filter(s => !s.artist);
 
   return (
@@ -930,9 +951,14 @@ function SongsTab() {
               Run this whenever you add new lead sheets.
             </div>
           </div>
-          <button onClick={connectAndSync} disabled={syncing} className="btn-gold" style={{padding:"12px 24px",fontSize:15,flexShrink:0}}>
-            {syncing ? "SYNCING…" : "🔄 SYNC SONGS"}
-          </button>
+          <div style={{display:"flex",gap:8,flexShrink:0}}>
+            <button onClick={clearAllSongs} disabled={syncing} className="btn-ghost" style={{padding:"12px 18px",fontSize:13}}>
+              🗑 Clear All
+            </button>
+            <button onClick={connectAndSync} disabled={syncing} className="btn-gold" style={{padding:"12px 24px",fontSize:15}}>
+              {syncing ? "SYNCING…" : "🔄 SYNC SONGS"}
+            </button>
+          </div>
         </div>
 
         {error && (
