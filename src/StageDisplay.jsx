@@ -1,8 +1,9 @@
-import { SONG_CONTENT } from "./songs";
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 
 const SUPABASE_URL = process.env.REACT_APP_SUPABASE_URL;
 const SUPABASE_KEY = process.env.REACT_APP_SUPABASE_KEY;
+const GOOGLE_CLIENT_ID = "789357706640-ckolnet2fi5kb2bui1phsrd0kpe3o8b8.apps.googleusercontent.com";
+const DRIVE_SCOPE = "https://www.googleapis.com/auth/drive.readonly";
 
 async function sbFetch(path, opts = {}) {
   const res = await fetch(`${SUPABASE_URL}/rest/v1${path}`, {
@@ -20,20 +21,33 @@ async function sbFetch(path, opts = {}) {
   return text ? JSON.parse(text) : null;
 }
 
+// Load mammoth.js from CDN
+function loadMammoth() {
+  return new Promise((resolve, reject) => {
+    if (window.mammoth) { resolve(window.mammoth); return; }
+    const script = document.createElement("script");
+    script.src = "https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js";
+    script.onload = () => resolve(window.mammoth);
+    script.onerror = reject;
+    document.body.appendChild(script);
+  });
+}
 
-
-// ─── TRANSPOSE ────────────────────────────────────────────────────────────────
-const NOTES = ["C","C#","D","D#","E","F","F#","G","G#","A","A#","B"];
-const ENH = {Db:"C#",Eb:"D#",Gb:"F#",Ab:"G#",Bb:"A#"};
-function transposeNote(note, n) { const r=ENH[note]||note; const i=NOTES.indexOf(r); return i===-1?note:NOTES[(i+n+12)%12]; }
-function transposeChord(chord, n) { return chord.replace(/^([A-G][b#]?)(.*)$/, (_,root,suf) => transposeNote(root,n)+suf); }
-function transposeLine(line, n) {
-  if (n===0) return line;
-  return line.replace(/\b([A-G][b#]?(?:maj|min|m|dim|aug|sus[24]?|add\d|[0-9])*(?:\/[A-G][b#]?)?)/g, c => transposeChord(c,n));
+// Load Google Identity script
+function loadGoogleScript() {
+  return new Promise((resolve, reject) => {
+    if (window.google?.accounts?.oauth2) { resolve(); return; }
+    const script = document.createElement("script");
+    script.src = "https://accounts.google.com/gsi/client";
+    script.async = true;
+    script.onload = resolve;
+    script.onerror = reject;
+    document.body.appendChild(script);
+  });
 }
 
 const css = `
-  @import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=IBM+Plex+Mono:wght@400;700&family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,500;0,9..40,700&display=swap');
+  @import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,500;0,9..40,700&display=swap');
   *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
   :root{
     --stage-deeper:#0e0825; --stage-dark:#1a0f40;
@@ -42,56 +56,169 @@ const css = `
   }
   html,body{height:100%;overflow:hidden;}
   body{font-family:var(--fb);background:var(--stage-deeper);color:white;}
+
+  /* Lead sheet styles — rendered inside .lead-sheet-content */
+  .lead-sheet-content {
+    color: white;
+    font-size: 28px;
+    line-height: 2;
+    font-weight: 300;
+  }
+  .lead-sheet-content p { margin: 0; }
+  .lead-sheet-content b, .lead-sheet-content strong { color: #7dd3f5; font-weight: 700; font-family: monospace; letter-spacing: 1px; }
+  .lead-sheet-content h1, .lead-sheet-content h2, .lead-sheet-content h3 {
+    color: var(--gold); font-family: var(--fd); letter-spacing: 4px;
+    font-size: 22px; margin-top: 32px; margin-bottom: 8px; font-weight: 400;
+  }
+  .lead-sheet-content table { border-collapse: collapse; width: 100%; }
+  .lead-sheet-content td { padding: 2px 8px; vertical-align: top; }
+  .lead-sheet-content br { line-height: 1; }
 `;
 
 export default function StageDisplay() {
   const [nowPlaying, setNowPlaying] = useState(null);
   const [nextUp, setNextUp] = useState(null);
-  const [transpose] = useState(0); // eslint-disable-line no-unused-vars
-  const [autoScroll, setAutoScroll] = useState(false); // eslint-disable-line no-unused-vars
-  const [scrollSpeed, setScrollSpeed] = useState(35); // eslint-disable-line no-unused-vars
+  const [autoScroll, setAutoScroll] = useState(false);
+  const [scrollSpeed, setScrollSpeed] = useState(35);
+  const [sheetHtml, setSheetHtml] = useState(null);
+  const [sheetLoading, setSheetLoading] = useState(false);
+  const [sheetError, setSheetError] = useState(null);
+  const [googleToken, setGoogleToken] = useState(null);
+  const [needsAuth, setNeedsAuth] = useState(false);
+  const [scriptReady, setScriptReady] = useState(false);
+
   const contentRef = useRef(null);
   const animRef = useRef(null);
   const posRef = useRef(0);
   const pollRef = useRef(null);
+  const nowPlayingRef = useRef(null);
+  const googleTokenRef = useRef(null);
 
-  // Poll for now-playing state from Supabase
-  const loadState = async () => {
+  // Keep refs in sync
+  useEffect(() => { nowPlayingRef.current = nowPlaying; }, [nowPlaying]);
+  useEffect(() => { googleTokenRef.current = googleToken; }, [googleToken]);
+
+  // Load Google script
+  useEffect(() => {
+    loadGoogleScript().then(() => setScriptReady(true)).catch(console.error);
+    loadMammoth().catch(console.error);
+  }, []);
+
+  // Sign in with Google
+  const signIn = useCallback(() => {
+    if (!scriptReady || !window.google) return;
+    const client = window.google.accounts.oauth2.initTokenClient({
+      client_id: GOOGLE_CLIENT_ID,
+      scope: DRIVE_SCOPE,
+      callback: (response) => {
+        if (response.error) { console.error("Google auth error:", response.error); return; }
+        setGoogleToken(response.access_token);
+        setNeedsAuth(false);
+        // Fetch sheet for current song if one is playing
+        if (nowPlayingRef.current) {
+          fetchSheet(nowPlayingRef.current, response.access_token);
+        }
+      },
+    });
+    client.requestAccessToken();
+  }, [scriptReady]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Fetch docx from Drive and convert with mammoth
+  const fetchSheet = useCallback(async (item, token) => {
+    if (!item?.song_id) return;
+    setSheetLoading(true);
+    setSheetError(null);
+    setSheetHtml(null);
+
     try {
-      // Get active event
+      // Look up drive_file_id from songs table
+      const songs = await sbFetch(`/songs?id=eq.${item.song_id}&select=drive_file_id`);
+      if (!songs || songs.length === 0 || !songs[0].drive_file_id) {
+        setSheetError("No chord sheet linked to this song.");
+        setSheetLoading(false);
+        return;
+      }
+
+      const fileId = songs[0].drive_file_id;
+      const t = token || googleTokenRef.current;
+
+      if (!t) { setNeedsAuth(true); setSheetLoading(false); return; }
+
+      // Download the docx file
+      const res = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, {
+        headers: { Authorization: `Bearer ${t}` },
+      });
+
+      if (res.status === 401) { setNeedsAuth(true); setSheetLoading(false); return; }
+      if (!res.ok) throw new Error(`Drive fetch failed: ${res.status}`);
+
+      const arrayBuffer = await res.arrayBuffer();
+
+      // Convert docx → HTML with mammoth
+      const mammoth = await loadMammoth();
+      const result = await mammoth.convertToHtml({ arrayBuffer });
+      setSheetHtml(result.value);
+
+      // Reset scroll position
+      posRef.current = 0;
+      if (contentRef.current) contentRef.current.scrollTop = 0;
+
+    } catch(e) {
+      console.error("Sheet fetch error:", e);
+      setSheetError(e.message);
+    } finally {
+      setSheetLoading(false);
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Poll Supabase for now-playing, next-up, and stage_state
+  const loadState = useCallback(async () => {
+    try {
       const evts = await sbFetch("/events?status=eq.active&order=created_at.desc&limit=1");
       if (!evts || evts.length === 0) { setNowPlaying(null); return; }
       const eventId = evts[0].id;
-      // Get playing item
-      const playing = await sbFetch(`/queue?event_id=eq.${eventId}&status=eq.playing&order=created_at.desc&limit=1`);
+
+      const [playing, queued, stageState] = await Promise.all([
+        sbFetch(`/queue?event_id=eq.${eventId}&status=eq.playing&order=created_at.desc&limit=1`),
+        sbFetch(`/queue?event_id=eq.${eventId}&status=eq.queued&order=position.asc&limit=1`),
+        sbFetch("/stage_state?id=eq.1&select=auto_scroll,scroll_speed"),
+      ]);
+
+      // Update stage state (autoscroll + speed from Prompter tab)
+      if (stageState && stageState.length > 0) {
+        setAutoScroll(stageState[0].auto_scroll);
+        setScrollSpeed(stageState[0].scroll_speed);
+      }
+
+      setNextUp(queued && queued.length > 0 ? queued[0] : null);
+
       if (playing && playing.length > 0) {
-        setNowPlaying(p => {
-          if (!p || p.id !== playing[0].id) {
-            posRef.current = 0;
-            if (contentRef.current) contentRef.current.scrollTop = 0;
+        const item = playing[0];
+        setNowPlaying(prev => {
+          // Only fetch new sheet when song changes
+          if (!prev || prev.id !== item.id) {
+            fetchSheet(item, googleTokenRef.current);
           }
-          return playing[0];
+          return item;
         });
       } else {
         setNowPlaying(null);
+        setSheetHtml(null);
+        setSheetError(null);
       }
-      // Get next queued
-      const queued = await sbFetch(`/queue?event_id=eq.${eventId}&status=eq.queued&order=position.asc&limit=1`);
-      setNextUp(queued && queued.length > 0 ? queued[0] : null);
-      // Get transpose from stage_state table if exists, else use local
     } catch(e) { console.error(e); }
-  };
+  }, [fetchSheet]);
 
   useEffect(() => {
     loadState();
     pollRef.current = setInterval(loadState, 3000);
     return () => clearInterval(pollRef.current);
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [loadState]);
 
-  // Auto-scroll loop
+  // Auto-scroll animation
   useEffect(() => {
     const tick = () => {
-      if (autoScroll && contentRef.current && nowPlaying) {
+      if (autoScroll && contentRef.current && nowPlaying && !sheetLoading) {
         posRef.current += scrollSpeed / 800;
         contentRef.current.scrollTop = posRef.current;
       }
@@ -99,13 +226,13 @@ export default function StageDisplay() {
     };
     animRef.current = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(animRef.current);
-  }, [autoScroll, scrollSpeed, nowPlaying]);
+  }, [autoScroll, scrollSpeed, nowPlaying, sheetLoading]);
 
-  // Sync scroll position ref when user manually scrolls
   const handleScroll = () => {
     if (contentRef.current) posRef.current = contentRef.current.scrollTop;
   };
 
+  // ── IDLE SCREEN ──
   if (!nowPlaying) {
     return (
       <>
@@ -124,18 +251,28 @@ export default function StageDisplay() {
             </div>
           )}
           <div style={{color:"rgba(255,255,255,.15)",fontSize:14,letterSpacing:3,fontFamily:"var(--fd)"}}>WAITING FOR BAND…</div>
+
+          {/* Auth button — subtle, bottom right */}
+          {scriptReady && (
+            <button onClick={signIn} style={{
+              position:"fixed",bottom:20,right:20,
+              background:"rgba(255,255,255,.06)",border:"1px solid rgba(255,255,255,.1)",
+              borderRadius:8,color:"rgba(255,255,255,.3)",padding:"8px 14px",fontSize:12,cursor:"pointer"
+            }}>
+              {googleToken ? "✓ Drive connected" : "Connect Google Drive"}
+            </button>
+          )}
         </div>
       </>
     );
   }
 
-  const content = SONG_CONTENT[nowPlaying.song_id] || "Chord sheet not available.";
-  const displayKey = transposeNote(nowPlaying.song_key.replace(/m(aj)?$/,''), transpose) + (nowPlaying.song_key.match(/m(?!aj)/) ? 'm' : '');
-
+  // ── NOW PLAYING SCREEN ──
   return (
     <>
       <style>{css}</style>
       <div style={{height:"100vh",background:"var(--stage-deeper)",display:"flex",flexDirection:"column",overflow:"hidden"}}>
+
         {/* Top bar */}
         <div style={{background:"linear-gradient(135deg,var(--stage-dark) 0%,var(--stage-deeper) 100%)",borderBottom:"3px solid var(--gold)",padding:"16px 56px",display:"flex",alignItems:"center",justifyContent:"space-between",flexShrink:0}}>
           <div>
@@ -144,35 +281,45 @@ export default function StageDisplay() {
           </div>
           <div style={{textAlign:"right"}}>
             <div style={{fontFamily:"var(--fd)",fontSize:40,color:"var(--gold)",letterSpacing:2}}>{nowPlaying.singer_name}</div>
-            <div style={{color:"rgba(255,255,255,.3)",fontSize:14,marginTop:2,fontFamily:"var(--fm)"}}>KEY: {displayKey}</div>
+            {autoScroll && <div style={{marginTop:4,fontSize:12,color:"rgba(255,255,255,.3)",fontFamily:"var(--fm)"}}>AUTO-SCROLL ON</div>}
           </div>
         </div>
 
-        {/* Scrollable content — natural scroll, keyboard + mouse */}
-        <div
-          ref={contentRef}
-          onScroll={handleScroll}
-          style={{flex:1,overflowY:"scroll",padding:"52px 80px 300px"}}
-        >
-          {content.split('\n').map((rawLine, i) => {
-            const line = transposeLine(rawLine, transpose);
-            const isSection = /^\[.+\]$/.test(line.trim());
-            const isChord = !isSection && line.trim().length > 0 && line.trim().length < 60 && /^[A-G][b#]?/.test(line.trim()) && !/[a-z]{4,}/.test(line);
-            const isEmpty = line.trim() === '';
-            return (
-              <div key={i} style={{
-                fontFamily:isSection?"var(--fd)":isChord?"var(--fm)":"var(--fb)",
-                fontSize:isSection?24:isChord?30:38,
-                color:isSection?"var(--gold)":isChord?"#7dd3f5":"white",
-                letterSpacing:isSection?4:isChord?2:0.5,
-                fontWeight:isChord?700:isSection?400:300,
-                lineHeight:isSection?1:1.9,
-                marginTop:isSection?32:isEmpty?16:0,
-                marginBottom:isSection?10:0,
-                minHeight:isEmpty?24:undefined,
-              }}>{line||'\u00A0'}</div>
-            );
-          })}
+        {/* Content area */}
+        <div ref={contentRef} onScroll={handleScroll} style={{flex:1,overflowY:"scroll",padding:"48px 80px 300px"}}>
+
+          {/* Needs auth */}
+          {needsAuth && (
+            <div style={{textAlign:"center",padding:"60px 24px"}}>
+              <div style={{fontSize:40,marginBottom:16}}>🔑</div>
+              <div style={{fontFamily:"var(--fd)",fontSize:24,color:"var(--gold)",letterSpacing:2,marginBottom:12}}>SIGN IN TO LOAD CHORD SHEET</div>
+              <button onClick={signIn} style={{padding:"14px 32px",background:"var(--gold)",border:"none",borderRadius:10,color:"var(--stage-deeper)",fontFamily:"var(--fd)",fontSize:18,letterSpacing:2,cursor:"pointer"}}>
+                CONNECT GOOGLE DRIVE
+              </button>
+            </div>
+          )}
+
+          {/* Loading */}
+          {sheetLoading && !needsAuth && (
+            <div style={{textAlign:"center",padding:"60px 24px",color:"rgba(255,255,255,.3)"}}>
+              <div style={{fontFamily:"var(--fd)",fontSize:20,letterSpacing:3}}>LOADING CHORD SHEET…</div>
+            </div>
+          )}
+
+          {/* Error */}
+          {sheetError && !sheetLoading && (
+            <div style={{textAlign:"center",padding:"60px 24px"}}>
+              <div style={{color:"rgba(255,100,100,.7)",fontSize:16,marginBottom:12}}>{sheetError}</div>
+              <button onClick={() => fetchSheet(nowPlaying, googleToken)} style={{padding:"10px 24px",background:"rgba(245,200,66,.1)",border:"1px solid rgba(245,200,66,.3)",borderRadius:8,color:"var(--gold)",fontSize:14,cursor:"pointer"}}>
+                Retry
+              </button>
+            </div>
+          )}
+
+          {/* Lead sheet HTML */}
+          {sheetHtml && !sheetLoading && (
+            <div className="lead-sheet-content" dangerouslySetInnerHTML={{__html: sheetHtml}} />
+          )}
         </div>
 
         {/* Up next footer */}

@@ -616,6 +616,26 @@ function PrompterTab() {
   const [scrollSpeed, setScrollSpeed] = useState(35);
   const pollRef = useRef(null);
 
+  const updateStageState = async (updates) => {
+    try {
+      await sbFetch("/stage_state?id=eq.1", {
+        method: "PATCH",
+        body: JSON.stringify({ ...updates, updated_at: new Date().toISOString() }),
+      });
+    } catch(e) { console.error("Stage state update failed:", e); }
+  };
+
+  const toggleAutoScroll = () => {
+    const next = !autoScroll;
+    setAutoScroll(next);
+    updateStageState({ auto_scroll: next });
+  };
+
+  const updateSpeed = (speed) => {
+    setScrollSpeed(speed);
+    updateStageState({ scroll_speed: speed });
+  };
+
   const loadPlaying = async () => {
     try {
       const evts = await api.events.active();
@@ -682,7 +702,7 @@ function PrompterTab() {
               <div style={{fontWeight:600,fontSize:14}}>Auto-scroll</div>
               <div style={{fontSize:12,color:"rgba(255,255,255,.35)",marginTop:2}}>Overrides manual scroll on the stage display</div>
             </div>
-            <button onClick={() => setAutoScroll(!autoScroll)} style={{
+            <button onClick={toggleAutoScroll} style={{
               width:48,height:26,borderRadius:13,border:"none",cursor:"pointer",
               background:autoScroll?"var(--gold)":"rgba(255,255,255,.15)",
               position:"relative",transition:"background .2s",flexShrink:0
@@ -702,7 +722,7 @@ function PrompterTab() {
                 <span style={{fontFamily:"var(--fm)",fontSize:12,color:"var(--gold)"}}>{scrollSpeed}</span>
               </div>
               <input type="range" min={5} max={100} value={scrollSpeed}
-                onChange={e=>setScrollSpeed(+e.target.value)} style={{width:"100%"}} />
+                onChange={e=>updateSpeed(+e.target.value)} style={{width:"100%"}} />
               <div style={{display:"flex",justifyContent:"space-between",marginTop:4}}>
                 <span style={{fontSize:11,color:"rgba(255,255,255,.2)"}}>Slow</span>
                 <span style={{fontSize:11,color:"rgba(255,255,255,.2)"}}>Fast</span>
