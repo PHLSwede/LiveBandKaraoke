@@ -387,12 +387,39 @@ export default function SingerApp() {
         </div>
 
         <div style={{padding:"20px",maxWidth:560,margin:"0 auto"}}>
-          <div style={{marginBottom:24}}>
+
+          {/* Name */}
+          <div style={{marginBottom:16}}>
             <label style={{display:"block",fontFamily:"var(--fd)",fontSize:12,color:"var(--gold-dim)",letterSpacing:3,marginBottom:7}}>YOUR NAME</label>
             <input value={name} onChange={e=>setName(e.target.value)} placeholder="What should we call you?" maxLength={30}
               style={{width:"100%",padding:"14px 16px",background:"rgba(255,255,255,.05)",border:`2px solid ${name.trim()?"rgba(245,200,66,.4)":"rgba(255,255,255,.1)"}`,borderRadius:12,color:"white",fontSize:17,outline:"none",transition:"border-color .2s"}} />
           </div>
 
+          {/* Picks summary */}
+          {picks.length > 0 && (
+            <div style={{marginBottom:14,padding:"12px 14px",background:"rgba(245,200,66,.06)",border:"1px solid rgba(245,200,66,.2)",borderRadius:10}}>
+              <div style={{fontFamily:"var(--fd)",fontSize:11,color:"var(--gold-dim)",letterSpacing:3,marginBottom:7}}>YOUR PICKS ({picks.length}/3)</div>
+              {picks.map((p,i) => (
+                <div key={p.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"3px 0",fontSize:13}}>
+                  <span style={{color:"rgba(255,255,255,.7)"}}>{i+1}. {p.title} — {p.artist}</span>
+                  <button onClick={()=>setPicks(picks.filter(x=>x.id!==p.id))} style={{background:"none",border:"none",color:"rgba(255,255,255,.3)",fontSize:15,padding:"0 4px"}}>✕</button>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Submit button */}
+          {error && <div style={{marginBottom:10,padding:"11px 14px",background:"rgba(192,57,43,.15)",border:"1px solid rgba(192,57,43,.4)",borderRadius:8,color:"#e74c3c",fontSize:13}}>{error}</div>}
+
+          <button className={`submit-btn ${canSubmit?"ready":"not-ready"}`} onClick={submit} disabled={!canSubmit} style={{marginBottom:24}}>
+            {loading ? "SUBMITTING…"
+              : !activeEvent ? "NO ACTIVE EVENT"
+              : picks.length===0 ? "SELECT UP TO 3 SONGS BELOW"
+              : !name.trim() ? "ENTER YOUR NAME ABOVE"
+              : `SUBMIT ${picks.length} PICK${picks.length>1?"S":""}`}
+          </button>
+
+          {/* Search */}
           <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10}}>
             <label style={{fontFamily:"var(--fd)",fontSize:12,color:"var(--gold-dim)",letterSpacing:3}}>PICK UP TO 3 SONGS</label>
             <span style={{fontSize:12,fontWeight:600,color:picks.length===3?"var(--gold)":"rgba(255,255,255,.3)"}}>{picks.length} / 3</span>
@@ -432,7 +459,7 @@ export default function SingerApp() {
             </div>
           )}
 
-          {/* Active filters summary */}
+          {/* Active filters */}
           {(category || mbTag) && (
             <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10,fontSize:12,color:"rgba(255,255,255,.4)"}}>
               <span>Filtering by:</span>
@@ -447,10 +474,11 @@ export default function SingerApp() {
           {!isLoading && displayedSongs.length > 0 && (
             <div style={{fontSize:11,color:"rgba(255,255,255,.2)",marginBottom:8,textAlign:"right"}}>
               {displayedSongs.length} song{displayedSongs.length!==1?"s":""}
-              {displayedSongs.length >= 300 && !hasFilter ? " — use search or filters to narrow down" : ""}
+              {displayedSongs.length >= 300 && !hasFilter ? " — search or filter to narrow down" : ""}
             </div>
           )}
 
+          {/* Song list */}
           <div style={{display:"flex",flexDirection:"column",gap:7,marginBottom:20}}>
             {isLoading && (
               <div style={{textAlign:"center",padding:"20px",color:"rgba(255,255,255,.2)",fontSize:13}}>Loading…</div>
@@ -479,29 +507,7 @@ export default function SingerApp() {
             })}
           </div>
 
-          {picks.length > 0 && (
-            <div style={{marginBottom:14,padding:"12px 14px",background:"rgba(245,200,66,.06)",border:"1px solid rgba(245,200,66,.2)",borderRadius:10}}>
-              <div style={{fontFamily:"var(--fd)",fontSize:11,color:"var(--gold-dim)",letterSpacing:3,marginBottom:7}}>YOUR PICKS</div>
-              {picks.map((p,i) => (
-                <div key={p.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"3px 0",fontSize:13}}>
-                  <span style={{color:"rgba(255,255,255,.7)"}}>{i+1}. {p.title}</span>
-                  <button onClick={()=>setPicks(picks.filter(x=>x.id!==p.id))} style={{background:"none",border:"none",color:"rgba(255,255,255,.3)",fontSize:15,padding:"0 4px"}}>✕</button>
-                </div>
-              ))}
-            </div>
-          )}
-
-          {error && <div style={{marginBottom:10,padding:"11px 14px",background:"rgba(192,57,43,.15)",border:"1px solid rgba(192,57,43,.4)",borderRadius:8,color:"#e74c3c",fontSize:13}}>{error}</div>}
-
-          <button className={`submit-btn ${canSubmit?"ready":"not-ready"}`} onClick={submit} disabled={!canSubmit}>
-            {loading ? "SUBMITTING…"
-              : !activeEvent ? "NO ACTIVE EVENT"
-              : picks.length===0 ? "SELECT A SONG TO CONTINUE"
-              : !name.trim() ? "ENTER YOUR NAME ABOVE"
-              : `SUBMIT ${picks.length} PICK${picks.length>1?"S":""}`}
-          </button>
-
-          <div style={{textAlign:"center",marginTop:20,color:"rgba(255,255,255,.1)",fontSize:11,letterSpacing:2,fontFamily:"var(--fd)"}}>
+          <div style={{textAlign:"center",marginTop:4,marginBottom:20,color:"rgba(255,255,255,.1)",fontSize:11,letterSpacing:2,fontFamily:"var(--fd)"}}>
             WATKINS DRINKERY · 1712 S. 10TH ST.
           </div>
         </div>
