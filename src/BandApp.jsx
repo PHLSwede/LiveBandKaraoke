@@ -95,7 +95,7 @@ function Nav({ tab, setTab }) {
       {[["events","🎪 Events"],["queue","🎵 Queue"],["songs","🎶 Songs"],["prompter","🎛 Prompter"]].map(([t,label]) => (
         <button key={t} className={`tab-btn${tab===t?" active":""}`} onClick={()=>setTab(t)}>{label}</button>
       ))}
-      <a href="/stage" target="_blank" rel="noopener noreferrer" style={{
+      <a href="/LiveBandKaraoke/stage" target="_blank" rel="noopener noreferrer" style={{
         display:"flex",alignItems:"center",padding:"0 16px",
         background:"rgba(245,200,66,.08)",borderLeft:"1px solid rgba(245,200,66,.2)",
         color:"var(--gold)",fontFamily:"var(--fd)",fontSize:13,letterSpacing:1,textDecoration:"none",
@@ -556,7 +556,7 @@ function QueueTab() {
               <div style={{textAlign:"center",padding:"50px 0",color:"rgba(255,255,255,.2)"}}>
                 <div style={{fontSize:32,marginBottom:10}}>🏟</div>
                 <div style={{fontFamily:"var(--fd)",fontSize:16,letterSpacing:2}}>BULLPEN IS EMPTY</div>
-                <div style={{fontSize:12,marginTop:6}}>Singers request at phlswede.github.io/LiveBandKaraoke/sing</div>
+                <div style={{fontSize:12,marginTop:6}}>Singers request at purplesandwich.netlify.app/sing</div>
               </div>
             )}
             {bullpen.map((req, i) => (
@@ -662,7 +662,7 @@ function PrompterTab() {
           <div style={{fontSize:13,color:"rgba(255,255,255,.4)",lineHeight:1.6}}>
             The stage display is a separate fullscreen page. Open it on the MacBook, then AirPlay to the TV.
           </div>
-          <a href="/stage" target="_blank" rel="noopener noreferrer" style={{
+          <a href="/LiveBandKaraoke/stage" target="_blank" rel="noopener noreferrer" style={{
             display:"block",padding:"12px 16px",background:"rgba(245,200,66,.08)",
             border:"1px solid rgba(245,200,66,.25)",borderRadius:8,
             color:"var(--gold)",fontFamily:"var(--fd)",fontSize:15,letterSpacing:2,
