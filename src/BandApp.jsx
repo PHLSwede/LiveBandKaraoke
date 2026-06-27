@@ -999,9 +999,6 @@ function SongsTab() {
       setEnriching(false);
     }
   };
-      setEnriching(false);
-    }
-  };
 
   const previewLeadSheet = (song) => {
     if (!scriptReady || !window.google) { setError("Google sign-in not ready yet — try again in a moment"); return; }
