@@ -192,10 +192,13 @@ export default function StageDisplay() {
         sbFetch("/stage_state?id=eq.1&select=auto_scroll,scroll_speed"),
       ]);
 
-      // Update stage state (autoscroll + speed from Prompter tab)
+      // Update stage state — don't overwrite speed while user is adjusting
       if (stageState && stageState.length > 0) {
         setAutoScroll(stageState[0].auto_scroll);
-        setScrollSpeed(stageState[0].scroll_speed);
+        if (!speedDebounceRef.current) {
+          localSpeedRef.current = stageState[0].scroll_speed;
+          setScrollSpeed(stageState[0].scroll_speed);
+        }
       }
 
       setNextUp(queued && queued.length > 0 ? queued[0] : null);
@@ -240,15 +243,22 @@ export default function StageDisplay() {
     if (contentRef.current) posRef.current = contentRef.current.scrollTop;
   };
 
+  const speedDebounceRef = useRef(null);
+  const localSpeedRef = useRef(35);
+
   const updateStageSpeed = async (speed) => {
     const clamped = Math.max(5, Math.min(100, speed));
+    localSpeedRef.current = clamped;
     setScrollSpeed(clamped);
-    try {
-      await sbFetch("/stage_state?id=eq.1", {
-        method: "PATCH",
-        body: JSON.stringify({ scroll_speed: clamped, updated_at: new Date().toISOString() }),
-      });
-    } catch(e) { console.error(e); }
+    clearTimeout(speedDebounceRef.current);
+    speedDebounceRef.current = setTimeout(async () => {
+      try {
+        await sbFetch("/stage_state?id=eq.1", {
+          method: "PATCH",
+          body: JSON.stringify({ scroll_speed: clamped, updated_at: new Date().toISOString() }),
+        });
+      } catch(e) { console.error(e); }
+    }, 400);
   };
 
   const toggleStageAutoScroll = async () => {
@@ -304,14 +314,29 @@ export default function StageDisplay() {
       <div style={{height:"100vh",background:"var(--stage-deeper)",display:"flex",flexDirection:"column",overflow:"hidden"}}>
 
         {/* Top bar */}
-        <div style={{background:"linear-gradient(135deg,var(--stage-dark) 0%,var(--stage-deeper) 100%)",borderBottom:"3px solid var(--gold)",padding:"16px 56px",display:"flex",alignItems:"center",justifyContent:"space-between",flexShrink:0}}>
-          <div>
-            <div style={{fontFamily:"var(--fd)",fontSize:52,color:"white",letterSpacing:2,lineHeight:1}}>{nowPlaying.song_title}</div>
-            <div style={{color:"var(--gold)",fontSize:18,marginTop:3,letterSpacing:1}}>{nowPlaying.song_artist}</div>
+        <div style={{background:"linear-gradient(135deg,var(--stage-dark) 0%,var(--stage-deeper) 100%)",borderBottom:"3px solid var(--gold)",padding:"12px 32px",display:"flex",alignItems:"center",justifyContent:"space-between",flexShrink:0,gap:16}}>
+          <div style={{minWidth:0}}>
+            <div style={{fontFamily:"var(--fd)",fontSize:44,color:"white",letterSpacing:2,lineHeight:1,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{nowPlaying.song_title}</div>
+            <div style={{color:"var(--gold)",fontSize:16,marginTop:2,letterSpacing:1}}>{nowPlaying.song_artist}</div>
           </div>
-          <div style={{textAlign:"right"}}>
-            <div style={{fontFamily:"var(--fd)",fontSize:40,color:"var(--gold)",letterSpacing:2}}>{nowPlaying.singer_name}</div>
-            {autoScroll && <div style={{marginTop:4,fontSize:12,color:"rgba(255,255,255,.3)",fontFamily:"var(--fm)"}}>AUTO-SCROLL ON</div>}
+
+          {/* Scroll controls in top bar */}
+          <div style={{display:"flex",alignItems:"center",gap:10,flexShrink:0}}>
+            <div style={{display:"flex",alignItems:"center",gap:6,background:"rgba(255,255,255,.06)",borderRadius:8,padding:"6px 10px"}}>
+              <button onClick={()=>updateStageSpeed(scrollSpeed-5)} style={{width:28,height:28,borderRadius:5,border:"none",background:"rgba(255,255,255,.1)",color:"white",fontSize:16,cursor:"pointer"}}>−</button>
+              <span style={{fontFamily:"var(--fm)",fontSize:13,color:"rgba(255,255,255,.5)",minWidth:24,textAlign:"center"}}>{scrollSpeed}</span>
+              <button onClick={()=>updateStageSpeed(scrollSpeed+5)} style={{width:28,height:28,borderRadius:5,border:"none",background:"rgba(255,255,255,.1)",color:"white",fontSize:16,cursor:"pointer"}}>+</button>
+            </div>
+            <button onClick={toggleStageAutoScroll} style={{
+              padding:"6px 14px",borderRadius:8,border:"none",cursor:"pointer",
+              background:autoScroll?"var(--gold)":"rgba(255,255,255,.1)",
+              color:autoScroll?"var(--stage-deeper)":"rgba(255,255,255,.5)",
+              fontFamily:"var(--fd)",fontSize:13,letterSpacing:1,
+            }}>{autoScroll?"⏸ PAUSE":"▶ AUTO"}</button>
+          </div>
+
+          <div style={{textAlign:"right",flexShrink:0}}>
+            <div style={{fontFamily:"var(--fd)",fontSize:34,color:"var(--gold)",letterSpacing:2}}>{nowPlaying.singer_name}</div>
           </div>
         </div>
 
@@ -350,25 +375,6 @@ export default function StageDisplay() {
           {sheetHtml && !sheetLoading && (
             <div className="lead-sheet-content" dangerouslySetInnerHTML={{__html: sheetHtml}} />
           )}
-        </div>
-
-        {/* Floating scroll controls — bottom left, subtle */}
-        <div style={{
-          position:"fixed",bottom:nextUp?60:16,left:16,
-          display:"flex",alignItems:"center",gap:8,
-          background:"rgba(0,0,0,.6)",backdropFilter:"blur(8px)",
-          border:"1px solid rgba(255,255,255,.1)",borderRadius:10,
-          padding:"8px 12px",zIndex:100
-        }}>
-          <button onClick={toggleStageAutoScroll} style={{
-            background:autoScroll?"var(--gold)":"rgba(255,255,255,.1)",
-            border:"none",borderRadius:6,color:autoScroll?"var(--stage-deeper)":"white",
-            padding:"4px 10px",fontSize:12,cursor:"pointer",fontFamily:"var(--fd)",letterSpacing:1
-          }}>{autoScroll?"⏸ PAUSE":"▶ AUTO"}</button>
-          <div style={{width:1,height:20,background:"rgba(255,255,255,.15)"}} />
-          <button onClick={()=>updateStageSpeed(scrollSpeed-5)} style={{width:26,height:26,borderRadius:5,border:"none",background:"rgba(255,255,255,.1)",color:"white",fontSize:14,cursor:"pointer"}}>−</button>
-          <span style={{fontFamily:"var(--fm)",fontSize:12,color:"rgba(255,255,255,.5)",minWidth:20,textAlign:"center"}}>{scrollSpeed}</span>
-          <button onClick={()=>updateStageSpeed(scrollSpeed+5)} style={{width:26,height:26,borderRadius:5,border:"none",background:"rgba(255,255,255,.1)",color:"white",fontSize:14,cursor:"pointer"}}>+</button>
         </div>
 
         {/* Up next footer */}
