@@ -556,7 +556,7 @@ function QueueTab() {
               <div style={{textAlign:"center",padding:"50px 0",color:"rgba(255,255,255,.2)"}}>
                 <div style={{fontSize:32,marginBottom:10}}>🏟</div>
                 <div style={{fontFamily:"var(--fd)",fontSize:16,letterSpacing:2}}>BULLPEN IS EMPTY</div>
-                <div style={{fontSize:12,marginTop:6}}>Singers request at purplesandwich.netlify.app/sing</div>
+                <div style={{fontSize:12,marginTop:6}}>Singers request at phlswede.github.io/LiveBandKaraoke/sing</div>
               </div>
             )}
             {bullpen.map((req, i) => (
