@@ -333,7 +333,7 @@ function BullpenCard({ req, position, eventId, onAddedToQueue }) {
         event_id: eventId,
         singer_name: req.singer_name,
         session_id: req.session_id,
-        song_id: Number(selectedSong.song_id),
+        song_id: selectedSong.song_id,
         song_title: selectedSong.song_title,
         song_artist: selectedSong.song_artist,
         song_key: selectedSong.song_key,
