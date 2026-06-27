@@ -88,7 +88,6 @@ async function fetchTopTags() {
 
 // Fetch songs with filters — no limit when browsing, 50 when searching
 async function fetchSongs(query, category, mbTag) {
-  const isSearching = query.trim() || category || mbTag;
   const limit = query.trim() ? 50 : 300;
   let path = `/songs?select=id,title,artist,genre,song_key,tags&order=artist.asc,title.asc&limit=${limit}`;
 
