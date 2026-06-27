@@ -5,8 +5,22 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="theme-color" content="#0e0825" />
     <meta name="description" content="Purple Sandwich Live Band Karaoke" />
+    <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="PS Karaoke" />
+
+    <!-- GitHub Pages SPA router fix -->
+    <script>
+      (function() {
+        var p = window.location.search.slice(1);
+        if (p && p.startsWith('p=')) {
+          var path = decodeURIComponent(p.slice(2));
+          window.history.replaceState(null, null, '/LiveBandKaraoke/' + path);
+        }
+      })();
+    </script>
+
     <title>Purple Sandwich Karaoke</title>
   </head>
   <body>
