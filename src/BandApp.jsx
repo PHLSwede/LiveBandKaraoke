@@ -817,6 +817,61 @@ async function listDriveFilesRecursive(accessToken, folderId, genre = null, dept
   return results;
 }
 
+// ─── MUSICBRAINZ ENRICHMENT ───────────────────────────────────────────────────
+
+// Derive decade from year
+function yearToDecade(year) {
+  if (!year) return null;
+  const y = parseInt(year);
+  if (isNaN(y)) return null;
+  return `${Math.floor(y / 10) * 10}s`;
+}
+
+// Query MusicBrainz for a recording by title + artist
+async function lookupMusicBrainz(title, artist) {
+  try {
+    const query = encodeURIComponent(`recording:"${title}" AND artist:"${artist}"`);
+    const url = `https://musicbrainz.org/ws/2/recording?query=${query}&limit=1&fmt=json`;
+    const res = await fetch(url, {
+      headers: { "User-Agent": "PurpleSandwichKaraoke/1.0 (oskar.f.johansson@gmail.com)" }
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    if (!data.recordings || data.recordings.length === 0) return null;
+
+    const rec = data.recordings[0];
+    // Get earliest release date
+    let year = null;
+    if (rec.releases && rec.releases.length > 0) {
+      const dates = rec.releases
+        .map(r => r.date ? parseInt(r.date.split("-")[0]) : null)
+        .filter(Boolean);
+      if (dates.length > 0) year = Math.min(...dates);
+    }
+    if (!year && rec["first-release-date"]) {
+      year = parseInt(rec["first-release-date"].split("-")[0]);
+    }
+
+    // Get tags
+    const tags = (rec.tags || [])
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 5)
+      .map(t => t.name);
+
+    return {
+      mb_id: rec.id,
+      decade: yearToDecade(year),
+      tags: tags.length > 0 ? tags : null,
+    };
+  } catch(e) {
+    console.error(`MusicBrainz lookup failed for ${title} - ${artist}:`, e);
+    return null;
+  }
+}
+
+// Sleep helper for rate limiting (MusicBrainz allows 1 req/sec)
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
 function SongsTab() {
   const [songs, setSongs] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -827,6 +882,60 @@ function SongsTab() {
   const [previewSong, setPreviewSong] = useState(null);
   const [previewHtml, setPreviewHtml] = useState(null);
   const [previewLoading, setPreviewLoading] = useState(false);
+  const [enriching, setEnriching] = useState(false);
+  const [enrichProgress, setEnrichProgress] = useState(null);
+  const enrichCancelRef = useRef(false);
+
+  const runEnrichment = async () => {
+    setEnriching(true);
+    enrichCancelRef.current = false;
+    setEnrichProgress({ done: 0, total: 0, found: 0, notFound: 0 });
+
+    try {
+      // Only enrich songs that don't have mb_id yet
+      const unenriched = await sbFetch("/songs?mb_id=is.null&select=id,title,artist&order=artist.asc");
+      if (!unenriched || unenriched.length === 0) {
+        setEnrichProgress({ done: 0, total: 0, found: 0, notFound: 0, complete: true });
+        setEnriching(false);
+        return;
+      }
+
+      const total = unenriched.length;
+      let done = 0, found = 0, notFound = 0;
+      setEnrichProgress({ done, total, found, notFound });
+
+      for (const song of unenriched) {
+        if (enrichCancelRef.current) break;
+        if (!song.title || !song.artist) { done++; notFound++; continue; }
+
+        const result = await lookupMusicBrainz(song.title, song.artist);
+
+        if (result) {
+          await sbFetch(`/songs?id=eq.${song.id}`, {
+            method: "PATCH",
+            body: JSON.stringify(result),
+          });
+          found++;
+        } else {
+          notFound++;
+        }
+
+        done++;
+        setEnrichProgress({ done, total, found, notFound });
+
+        // MusicBrainz rate limit: 1 request per second
+        await sleep(1100);
+      }
+
+      setEnrichProgress(p => ({ ...p, complete: true }));
+      await loadSongs();
+    } catch(e) {
+      console.error("Enrichment error:", e);
+      setError("Enrichment failed: " + e.message);
+    } finally {
+      setEnriching(false);
+    }
+  };
 
   const previewLeadSheet = (song) => {
     if (!scriptReady || !window.google) { setError("Google sign-in not ready yet — try again in a moment"); return; }
@@ -1012,6 +1121,53 @@ function SongsTab() {
         )}
       </div>
 
+      {/* Enrichment section */}
+      <div style={{background:"rgba(255,255,255,.03)",border:"1px solid var(--border)",borderRadius:14,padding:"24px",marginBottom:28}}>
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:16}}>
+          <div>
+            <div style={{fontFamily:"var(--fd)",fontSize:20,color:"var(--gold)",letterSpacing:2,marginBottom:4}}>🎵 MUSICBRAINZ METADATA</div>
+            <div style={{fontSize:13,color:"rgba(255,255,255,.4)",lineHeight:1.6}}>
+              Looks up decade and genre tags for each song.<br/>
+              Rate limited to 1/sec — 788 songs takes ~15 mins. Run before a gig.
+            </div>
+          </div>
+          <div style={{display:"flex",gap:8,flexShrink:0}}>
+            {enriching && (
+              <button onClick={() => { enrichCancelRef.current = true; }} style={{padding:"12px 18px",background:"rgba(192,57,43,.15)",border:"1px solid rgba(192,57,43,.3)",borderRadius:8,color:"var(--red)",fontSize:13,cursor:"pointer"}}>
+                Stop
+              </button>
+            )}
+            <button onClick={runEnrichment} disabled={enriching} className="btn-gold" style={{padding:"12px 24px",fontSize:15}}>
+              {enriching ? "ENRICHING…" : "🔍 ENRICH METADATA"}
+            </button>
+          </div>
+        </div>
+
+        {/* Progress */}
+        {enrichProgress && (
+          <div className="fade-in" style={{marginTop:14}}>
+            {/* Progress bar */}
+            <div style={{height:4,background:"rgba(255,255,255,.08)",borderRadius:2,marginBottom:10,overflow:"hidden"}}>
+              <div style={{
+                height:"100%",background:"var(--gold)",borderRadius:2,
+                width: enrichProgress.total > 0 ? `${(enrichProgress.done/enrichProgress.total)*100}%` : "0%",
+                transition:"width .3s ease"
+              }} />
+            </div>
+            <div style={{display:"flex",justifyContent:"space-between",fontSize:12,color:"rgba(255,255,255,.5)"}}>
+              <span>{enrichProgress.done} / {enrichProgress.total} songs processed</span>
+              <span style={{color:"var(--green)"}}>✓ {enrichProgress.found} found</span>
+              <span style={{color:"rgba(255,255,255,.3)"}}>✗ {enrichProgress.notFound} not found</span>
+            </div>
+            {enrichProgress.complete && (
+              <div style={{marginTop:8,padding:"10px 14px",background:"rgba(39,174,96,.08)",border:"1px solid rgba(39,174,96,.3)",borderRadius:8,fontSize:13,color:"var(--green)"}}>
+                ✓ Enrichment complete — {enrichProgress.found} songs updated with decade and tags
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
       {/* Needs review */}
       {unparsedSongs.length > 0 && (
         <div style={{marginBottom:28}}>
@@ -1050,6 +1206,12 @@ function SongsTab() {
             <div style={{flex:1,minWidth:0}}>
               <div style={{fontWeight:600,fontSize:14}}>{song.title}</div>
               <div style={{color:"rgba(255,255,255,.4)",fontSize:12}}>{song.artist || "—"}</div>
+              {(song.decade || (song.tags && song.tags.length > 0)) && (
+                <div style={{display:"flex",gap:4,flexWrap:"wrap",marginTop:4}}>
+                  {song.decade && <span style={{background:"rgba(245,200,66,.1)",border:"1px solid rgba(245,200,66,.2)",borderRadius:4,padding:"1px 6px",fontSize:10,color:"var(--gold2)"}}>{song.decade}</span>}
+                  {song.tags && song.tags.slice(0,3).map(t => <span key={t} style={{background:"rgba(255,255,255,.06)",borderRadius:4,padding:"1px 6px",fontSize:10,color:"rgba(255,255,255,.4)"}}>{t}</span>)}
+                </div>
+              )}
             </div>
             {song.song_key && <span style={{fontFamily:"var(--fm)",fontSize:12,color:"var(--gold2)"}}>{song.song_key}</span>}
             <button onClick={() => previewLeadSheet(song)} style={{padding:"6px 12px",background:"rgba(245,200,66,.1)",border:"1px solid rgba(245,200,66,.25)",borderRadius:6,color:"var(--gold)",fontSize:12,flexShrink:0,cursor:"pointer"}}>👁 Preview</button>
