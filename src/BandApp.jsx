@@ -611,10 +611,11 @@ function QueueTab() {
 // ─── PROMPTER TAB ─────────────────────────────────────────────────────────────
 function PrompterTab() {
   const [nowPlaying, setNowPlaying] = useState(null);
-  const [transpose, setTranspose] = useState(0);
   const [autoScroll, setAutoScroll] = useState(false);
   const [scrollSpeed, setScrollSpeed] = useState(35);
   const pollRef = useRef(null);
+  const speedDebounceRef = useRef(null);
+  const localSpeedRef = useRef(35); // track local value to avoid poll overwrite
 
   const updateStageState = async (updates) => {
     try {
@@ -632,8 +633,13 @@ function PrompterTab() {
   };
 
   const updateSpeed = (speed) => {
+    localSpeedRef.current = speed;
     setScrollSpeed(speed);
-    updateStageState({ scroll_speed: speed });
+    // Debounce DB write — only write after slider stops moving
+    clearTimeout(speedDebounceRef.current);
+    speedDebounceRef.current = setTimeout(() => {
+      updateStageState({ scroll_speed: speed });
+    }, 400);
   };
 
   const loadPlaying = async () => {
@@ -642,6 +648,16 @@ function PrompterTab() {
       if (!evts || evts.length === 0) { setNowPlaying(null); return; }
       const playing = await api.queue.playing(evts[0].id);
       setNowPlaying(playing && playing.length > 0 ? playing[0] : null);
+      // Load stage state but don't overwrite local speed if user is sliding
+      const state = await sbFetch("/stage_state?id=eq.1&select=auto_scroll,scroll_speed");
+      if (state && state.length > 0) {
+        setAutoScroll(state[0].auto_scroll);
+        // Only update speed from DB if user isn't actively changing it
+        if (!speedDebounceRef.current) {
+          localSpeedRef.current = state[0].scroll_speed;
+          setScrollSpeed(state[0].scroll_speed);
+        }
+      }
     } catch(e) { console.error(e); }
   };
 
@@ -667,7 +683,6 @@ function PrompterTab() {
           <div style={{background:"rgba(245,200,66,.07)",border:"2px solid var(--gold)",borderRadius:12,padding:"16px 18px"}}>
             <div style={{fontWeight:700,fontSize:18,color:"white"}}>{nowPlaying.song_title}</div>
             <div style={{color:"rgba(255,255,255,.45)",fontSize:13,marginTop:3}}>{nowPlaying.singer_name} · {nowPlaying.song_artist}</div>
-            <div style={{fontFamily:"var(--fm)",color:"var(--gold2)",fontSize:12,marginTop:4}}>Key: {nowPlaying.song_key}</div>
           </div>
         ) : (
           <div style={{padding:"16px",background:"rgba(255,255,255,.03)",borderRadius:10,color:"rgba(255,255,255,.25)",fontSize:14}}>
@@ -680,7 +695,7 @@ function PrompterTab() {
       {section("STAGE DISPLAY",
         <div style={{display:"flex",flexDirection:"column",gap:8}}>
           <div style={{fontSize:13,color:"rgba(255,255,255,.4)",lineHeight:1.6}}>
-            The stage display is a separate fullscreen page. Open it on the MacBook, then AirPlay to the TV.
+            Open on the MacBook, then AirPlay to the TV. Sign in with Google Drive to load chord sheets.
           </div>
           <a href="/LiveBandKaraoke/stage" target="_blank" rel="noopener noreferrer" style={{
             display:"block",padding:"12px 16px",background:"rgba(245,200,66,.08)",
@@ -688,9 +703,6 @@ function PrompterTab() {
             color:"var(--gold)",fontFamily:"var(--fd)",fontSize:15,letterSpacing:2,
             textDecoration:"none",textAlign:"center"
           }}>📺 OPEN STAGE DISPLAY ↗</a>
-          <div style={{fontSize:12,color:"rgba(255,255,255,.2)"}}>
-            Tip: The stage display scrolls naturally with mouse wheel, trackpad, or keyboard arrows. Use auto-scroll below for hands-free operation.
-          </div>
         </div>
       )}
 
@@ -700,7 +712,7 @@ function PrompterTab() {
           <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"12px 16px",background:"rgba(255,255,255,.04)",border:"1px solid rgba(255,255,255,.08)",borderRadius:10}}>
             <div>
               <div style={{fontWeight:600,fontSize:14}}>Auto-scroll</div>
-              <div style={{fontSize:12,color:"rgba(255,255,255,.35)",marginTop:2}}>Overrides manual scroll on the stage display</div>
+              <div style={{fontSize:12,color:"rgba(255,255,255,.35)",marginTop:2}}>Controls the stage display teleprompter</div>
             </div>
             <button onClick={toggleAutoScroll} style={{
               width:48,height:26,borderRadius:13,border:"none",cursor:"pointer",
@@ -715,47 +727,28 @@ function PrompterTab() {
             </button>
           </div>
 
-          {autoScroll && (
-            <div className="fade-in" style={{padding:"14px 16px",background:"rgba(255,255,255,.04)",border:"1px solid rgba(255,255,255,.08)",borderRadius:10}}>
-              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
-                <span style={{fontSize:13,color:"rgba(255,255,255,.6)"}}>Scroll speed</span>
-                <span style={{fontFamily:"var(--fm)",fontSize:12,color:"var(--gold)"}}>{scrollSpeed}</span>
-              </div>
-              <input type="range" min={5} max={100} value={scrollSpeed}
-                onChange={e=>updateSpeed(+e.target.value)} style={{width:"100%"}} />
-              <div style={{display:"flex",justifyContent:"space-between",marginTop:4}}>
-                <span style={{fontSize:11,color:"rgba(255,255,255,.2)"}}>Slow</span>
-                <span style={{fontSize:11,color:"rgba(255,255,255,.2)"}}>Fast</span>
+          {/* Speed always visible, not just when auto-scroll on */}
+          <div style={{padding:"14px 16px",background:"rgba(255,255,255,.04)",border:"1px solid rgba(255,255,255,.08)",borderRadius:10}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+              <span style={{fontSize:13,color:"rgba(255,255,255,.6)"}}>Scroll speed</span>
+              <div style={{display:"flex",alignItems:"center",gap:8}}>
+                <button onClick={()=>updateSpeed(Math.max(5,scrollSpeed-5))} style={{width:28,height:28,borderRadius:6,border:"none",background:"rgba(255,255,255,.1)",color:"white",fontSize:16,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>−</button>
+                <span style={{fontFamily:"var(--fm)",fontSize:14,color:"var(--gold)",minWidth:28,textAlign:"center"}}>{scrollSpeed}</span>
+                <button onClick={()=>updateSpeed(Math.min(100,scrollSpeed+5))} style={{width:28,height:28,borderRadius:6,border:"none",background:"rgba(255,255,255,.1)",color:"white",fontSize:16,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>+</button>
               </div>
             </div>
-          )}
-        </div>
-      )}
-
-      {/* Transpose */}
-      {section("TRANSPOSE",
-        <div style={{background:"rgba(255,255,255,.04)",border:"1px solid rgba(255,255,255,.08)",borderRadius:10,padding:"14px 16px"}}>
-          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12}}>
-            <span style={{fontSize:13,color:"rgba(255,255,255,.6)"}}>Semitones</span>
-            <span style={{fontFamily:"var(--fm)",fontSize:16,color:"var(--gold)",fontWeight:700}}>
-              {transpose > 0 ? `+${transpose}` : transpose === 0 ? "0 (original)" : transpose}
-            </span>
-          </div>
-          <div style={{display:"flex",gap:8}}>
-            <button onClick={()=>setTranspose(t=>t-1)} style={{flex:1,padding:"12px",background:"rgba(255,255,255,.08)",border:"none",borderRadius:8,color:"white",fontSize:18,cursor:"pointer"}}>♭ −1</button>
-            <button onClick={()=>setTranspose(0)} style={{flex:1,padding:"12px",background:transpose===0?"rgba(245,200,66,.15)":"rgba(255,255,255,.04)",border:`1px solid ${transpose===0?"rgba(245,200,66,.3)":"rgba(255,255,255,.08)"}`,borderRadius:8,color:transpose===0?"var(--gold)":"rgba(255,255,255,.35)",fontSize:12,cursor:"pointer"}}>RESET</button>
-            <button onClick={()=>setTranspose(t=>t+1)} style={{flex:1,padding:"12px",background:"rgba(255,255,255,.08)",border:"none",borderRadius:8,color:"white",fontSize:18,cursor:"pointer"}}>♯ +1</button>
-          </div>
-          {transpose !== 0 && nowPlaying && (
-            <div style={{marginTop:10,fontSize:12,color:"rgba(255,255,255,.35)",fontFamily:"var(--fm)"}}>
-              Original: {nowPlaying.song_key} → Displayed: {nowPlaying.song_key}{/* simplified */}
+            <input type="range" min={5} max={100} value={scrollSpeed}
+              onChange={e=>updateSpeed(+e.target.value)} style={{width:"100%"}} />
+            <div style={{display:"flex",justifyContent:"space-between",marginTop:4}}>
+              <span style={{fontSize:11,color:"rgba(255,255,255,.2)"}}>Slow</span>
+              <span style={{fontSize:11,color:"rgba(255,255,255,.2)"}}>Fast</span>
             </div>
-          )}
+          </div>
         </div>
       )}
 
       <div style={{fontSize:11,color:"rgba(255,255,255,.15)",textAlign:"center",marginTop:8}}>
-        Note: transpose and auto-scroll settings apply locally. Stage display reads these on next poll.
+        Speed and auto-scroll saved automatically · Stage display updates within 3s
       </div>
     </div>
   );

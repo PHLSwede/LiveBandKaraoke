@@ -102,6 +102,14 @@ export default function StageDisplay() {
   useEffect(() => {
     loadGoogleScript().then(() => setScriptReady(true)).catch(console.error);
     loadMammoth().catch(console.error);
+    // Load persisted stage state
+    sbFetch("/stage_state?id=eq.1&select=auto_scroll,scroll_speed")
+      .then(state => {
+        if (state && state.length > 0) {
+          setAutoScroll(state[0].auto_scroll);
+          setScrollSpeed(state[0].scroll_speed);
+        }
+      }).catch(console.error);
   }, []);
 
   // Sign in with Google
@@ -232,7 +240,29 @@ export default function StageDisplay() {
     if (contentRef.current) posRef.current = contentRef.current.scrollTop;
   };
 
-  // ── IDLE SCREEN ──
+  const updateStageSpeed = async (speed) => {
+    const clamped = Math.max(5, Math.min(100, speed));
+    setScrollSpeed(clamped);
+    try {
+      await sbFetch("/stage_state?id=eq.1", {
+        method: "PATCH",
+        body: JSON.stringify({ scroll_speed: clamped, updated_at: new Date().toISOString() }),
+      });
+    } catch(e) { console.error(e); }
+  };
+
+  const toggleStageAutoScroll = async () => {
+    const next = !autoScroll;
+    setAutoScroll(next);
+    try {
+      await sbFetch("/stage_state?id=eq.1", {
+        method: "PATCH",
+        body: JSON.stringify({ auto_scroll: next, updated_at: new Date().toISOString() }),
+      });
+    } catch(e) { console.error(e); }
+  };
+
+
   if (!nowPlaying) {
     return (
       <>
@@ -320,6 +350,25 @@ export default function StageDisplay() {
           {sheetHtml && !sheetLoading && (
             <div className="lead-sheet-content" dangerouslySetInnerHTML={{__html: sheetHtml}} />
           )}
+        </div>
+
+        {/* Floating scroll controls — bottom left, subtle */}
+        <div style={{
+          position:"fixed",bottom:nextUp?60:16,left:16,
+          display:"flex",alignItems:"center",gap:8,
+          background:"rgba(0,0,0,.6)",backdropFilter:"blur(8px)",
+          border:"1px solid rgba(255,255,255,.1)",borderRadius:10,
+          padding:"8px 12px",zIndex:100
+        }}>
+          <button onClick={toggleStageAutoScroll} style={{
+            background:autoScroll?"var(--gold)":"rgba(255,255,255,.1)",
+            border:"none",borderRadius:6,color:autoScroll?"var(--stage-deeper)":"white",
+            padding:"4px 10px",fontSize:12,cursor:"pointer",fontFamily:"var(--fd)",letterSpacing:1
+          }}>{autoScroll?"⏸ PAUSE":"▶ AUTO"}</button>
+          <div style={{width:1,height:20,background:"rgba(255,255,255,.15)"}} />
+          <button onClick={()=>updateStageSpeed(scrollSpeed-5)} style={{width:26,height:26,borderRadius:5,border:"none",background:"rgba(255,255,255,.1)",color:"white",fontSize:14,cursor:"pointer"}}>−</button>
+          <span style={{fontFamily:"var(--fm)",fontSize:12,color:"rgba(255,255,255,.5)",minWidth:20,textAlign:"center"}}>{scrollSpeed}</span>
+          <button onClick={()=>updateStageSpeed(scrollSpeed+5)} style={{width:26,height:26,borderRadius:5,border:"none",background:"rgba(255,255,255,.1)",color:"white",fontSize:14,cursor:"pointer"}}>+</button>
         </div>
 
         {/* Up next footer */}
