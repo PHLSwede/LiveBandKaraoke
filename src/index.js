@@ -8,7 +8,7 @@ import QueueBoard from './QueueBoard';
 
 const root = ReactDOM.createRoot(document.getElementById('root'));
 root.render(
-  <BrowserRouter>
+  <BrowserRouter basename="/LiveBandKaraoke">
     <Routes>
       <Route path="/sing" element={<SingerApp />} />
       <Route path="/band" element={<BandApp />} />

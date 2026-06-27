@@ -556,7 +556,7 @@ function QueueTab() {
               <div style={{textAlign:"center",padding:"50px 0",color:"rgba(255,255,255,.2)"}}>
                 <div style={{fontSize:32,marginBottom:10}}>🏟</div>
                 <div style={{fontFamily:"var(--fd)",fontSize:16,letterSpacing:2}}>BULLPEN IS EMPTY</div>
-                <div style={{fontSize:12,marginTop:6}}>Singers request at purplesandwich.netlify.app/sing</div>
+                <div style={{fontSize:12,marginTop:6}}>Singers request at phlswede.github.io/LiveBandKaraoke/sing</div>
               </div>
             )}
             {bullpen.map((req, i) => (
@@ -824,6 +824,40 @@ function SongsTab() {
   const [syncResult, setSyncResult] = useState(null);
   const [error, setError] = useState(null);
   const [scriptReady, setScriptReady] = useState(false);
+  const [previewSong, setPreviewSong] = useState(null);
+  const [previewHtml, setPreviewHtml] = useState(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
+
+  const previewLeadSheet = (song) => {
+    if (!scriptReady || !window.google) { setError("Google sign-in not ready yet — try again in a moment"); return; }
+    setError(null);
+    setPreviewSong(song);
+    setPreviewHtml(null);
+    setPreviewLoading(true);
+
+    const client = window.google.accounts.oauth2.initTokenClient({
+      client_id: GOOGLE_CLIENT_ID,
+      scope: DRIVE_SCOPE,
+      callback: async (response) => {
+        if (response.error) { setError("Google sign-in failed: " + response.error); setPreviewLoading(false); return; }
+        try {
+          const url = `https://www.googleapis.com/drive/v3/files/${song.drive_file_id}/export?mimeType=text/html`;
+          const res = await fetch(url, { headers: { Authorization: `Bearer ${response.access_token}` } });
+          if (!res.ok) throw new Error(`Export failed: ${res.status}`);
+          const html = await res.text();
+          // Extract just the body content
+          const bodyMatch = html.match(/<body[^>]*>([\s\S]*)<\/body>/i);
+          setPreviewHtml(bodyMatch ? bodyMatch[1] : html);
+        } catch(e) {
+          console.error(e);
+          setError("Preview failed: " + e.message);
+        } finally {
+          setPreviewLoading(false);
+        }
+      },
+    });
+    client.requestAccessToken();
+  };
 
   const loadSongs = async () => {
     try {
@@ -1018,10 +1052,36 @@ function SongsTab() {
               <div style={{color:"rgba(255,255,255,.4)",fontSize:12}}>{song.artist || "—"}</div>
             </div>
             {song.song_key && <span style={{fontFamily:"var(--fm)",fontSize:12,color:"var(--gold2)"}}>{song.song_key}</span>}
+            <button onClick={() => previewLeadSheet(song)} style={{padding:"6px 12px",background:"rgba(245,200,66,.1)",border:"1px solid rgba(245,200,66,.25)",borderRadius:6,color:"var(--gold)",fontSize:12,flexShrink:0,cursor:"pointer"}}>👁 Preview</button>
             <button onClick={() => deleteSong(song.id)} style={{padding:"6px 10px",background:"rgba(192,57,43,.12)",border:"none",borderRadius:6,color:"var(--red)",fontSize:13,flexShrink:0}}>✕</button>
           </div>
         ))}
       </div>
+
+      {/* Preview modal */}
+      {previewSong && (
+        <div onClick={() => { setPreviewSong(null); setPreviewHtml(null); }} style={{
+          position:"fixed",inset:0,background:"rgba(0,0,0,.7)",zIndex:1000,
+          display:"flex",alignItems:"center",justifyContent:"center",padding:24
+        }}>
+          <div onClick={e => e.stopPropagation()} style={{
+            background:"#fff",color:"#000",borderRadius:14,maxWidth:700,width:"100%",
+            maxHeight:"85vh",overflow:"hidden",display:"flex",flexDirection:"column"
+          }}>
+            <div style={{padding:"16px 20px",borderBottom:"1px solid #eee",display:"flex",justifyContent:"space-between",alignItems:"center",flexShrink:0}}>
+              <div>
+                <div style={{fontFamily:"var(--fd)",fontSize:18,color:"#333",letterSpacing:1}}>{previewSong.title}</div>
+                <div style={{fontSize:12,color:"#888"}}>{previewSong.artist}</div>
+              </div>
+              <button onClick={() => { setPreviewSong(null); setPreviewHtml(null); }} style={{background:"none",border:"none",fontSize:24,cursor:"pointer",color:"#999"}}>×</button>
+            </div>
+            <div style={{flex:1,overflowY:"auto",padding:"20px 24px"}}>
+              {previewLoading && <div style={{textAlign:"center",padding:40,color:"#999"}}>Loading lead sheet…</div>}
+              {previewHtml && <div dangerouslySetInnerHTML={{__html: previewHtml}} />}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
