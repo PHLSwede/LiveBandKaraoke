@@ -66,25 +66,58 @@ async function checkStatus(requestId, sessionId) {
   return { status: "unknown" };
 }
 
-// Fetch distinct genres for filter pills
-async function fetchGenres() {
+// Fetch Bandeoke categories (Drive folder names = genre column)
+async function fetchCategories() {
   const songs = await sbFetch("/songs?select=genre&genre=not.is.null");
-  const genres = new Set((songs || []).map(s => s.genre).filter(Boolean));
-  return ["All", ...Array.from(genres).sort()];
+  const cats = new Set((songs || []).map(s => s.genre).filter(Boolean));
+  return Array.from(cats).sort();
 }
 
-// Search songs by title/artist, optionally filtered by genre
-async function searchSongs(query, genre, limit = 30) {
-  let path = `/songs?select=id,title,artist,genre,song_key&order=title.asc&limit=${limit}`;
-  if (genre && genre !== "All") {
-    path += `&genre=eq.${encodeURIComponent(genre)}`;
-  }
-  if (query && query.trim()) {
-    // Search title OR artist, case-insensitive
+// Fetch top 20 MusicBrainz tags by frequency
+async function fetchTopTags() {
+  const songs = await sbFetch("/songs?select=tags&tags=not.is.null");
+  const freq = {};
+  (songs || []).forEach(s => {
+    if (s.tags) s.tags.forEach(t => { freq[t] = (freq[t] || 0) + 1; });
+  });
+  return Object.entries(freq)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 20)
+    .map(([tag]) => tag);
+}
+
+// Fetch songs with filters — no limit when browsing, 50 when searching
+async function fetchSongs(query, category, mbTag) {
+  const isSearching = query.trim() || category || mbTag;
+  const limit = query.trim() ? 50 : 300;
+  let path = `/songs?select=id,title,artist,genre,song_key,tags&order=artist.asc,title.asc&limit=${limit}`;
+
+  if (category) path += `&genre=eq.${encodeURIComponent(category)}`;
+
+  if (query.trim()) {
     const q = encodeURIComponent(`%${query.trim()}%`);
     path += `&or=(title.ilike.${q},artist.ilike.${q})`;
   }
-  return await sbFetch(path) || [];
+
+  const songs = await sbFetch(path) || [];
+
+  // Filter by MB tag client-side (OR with other filters)
+  if (mbTag) {
+    if (category || query.trim()) {
+      // OR mode — also fetch songs that have this tag regardless of other filters
+      const tagPath = `/songs?select=id,title,artist,genre,song_key,tags&order=artist.asc,title.asc&limit=${limit}&tags=cs.{${encodeURIComponent(mbTag)}}`;
+      const tagSongs = await sbFetch(tagPath) || [];
+      // Merge and deduplicate
+      const ids = new Set(songs.map(s => s.id));
+      tagSongs.forEach(s => { if (!ids.has(s.id)) songs.push(s); });
+      songs.sort((a, b) => a.artist?.localeCompare(b.artist) || a.title?.localeCompare(b.title));
+    } else {
+      // Only MB tag selected — filter directly
+      return songs.filter(s => s.tags && s.tags.includes(mbTag));
+    }
+  }
+
+  return songs;
 }
 
 const css = `
@@ -243,12 +276,16 @@ export default function SingerApp() {
   const [eventLoading, setEventLoading] = useState(true);
   const [name, setName] = useState("");
   const [search, setSearch] = useState("");
-  const [genre, setGenre] = useState("All");
-  const [genres, setGenres] = useState(["All"]);
+  const [category, setCategory] = useState(null);   // Bandeoke category (Drive folder)
+  const [mbTag, setMbTag] = useState(null);          // MusicBrainz tag
+  const [categories, setCategories] = useState([]);
+  const [topTags, setTopTags] = useState([]);
   const [results, setResults] = useState([]);
+  const [allSongs, setAllSongs] = useState([]);      // full list for default browse
+  const [allLoading, setAllLoading] = useState(true);
   const [searching, setSearching] = useState(false);
   const [picks, setPicks] = useState([]);
-  const [submitted, setSubmitted] = useState(null); // { requestId, name, picks }
+  const [submitted, setSubmitted] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
@@ -258,26 +295,34 @@ export default function SingerApp() {
     return () => clearInterval(t);
   }, []);
 
-  // Load genre list once
+  // Load filter options and full song list on mount
   useEffect(() => {
-    fetchGenres().then(setGenres).catch(console.error);
+    fetchCategories().then(setCategories).catch(console.error);
+    fetchTopTags().then(setTopTags).catch(console.error);
+    // Load full list for default browse (all songs, alphabetical)
+    fetchSongs("", null, null)
+      .then(songs => { setAllSongs(songs); setAllLoading(false); })
+      .catch(() => setAllLoading(false));
   }, []);
 
-  // Debounced search — runs when search text or genre changes
+  // Debounced search/filter
   useEffect(() => {
-    // Don't search if both empty (search="" and genre="All") to avoid loading everything
-    if (!search.trim() && genre === "All") { setResults([]); return; }
+    const hasFilter = search.trim() || category || mbTag;
+    if (!hasFilter) { setResults([]); return; }
     setSearching(true);
     const t = setTimeout(() => {
-      searchSongs(search, genre)
+      fetchSongs(search, category, mbTag)
         .then(setResults)
         .catch(console.error)
         .finally(() => setSearching(false));
     }, 300);
     return () => clearTimeout(t);
-  }, [search, genre]);
+  }, [search, category, mbTag]);
 
-  const filtered = results;
+  // What to show in the list
+  const hasFilter = search.trim() || category || mbTag;
+  const displayedSongs = hasFilter ? results : allSongs;
+  const isLoading = hasFilter ? searching : allLoading;
 
 
   const toggle = (song) => {
@@ -296,7 +341,7 @@ export default function SingerApp() {
   };
 
   const handleReset = () => {
-    setSubmitted(null); setName(""); setPicks([]); setSearch(""); setGenre("All");
+    setSubmitted(null); setName(""); setPicks([]); setSearch(""); setCategory(null); setMbTag(null);
   };
 
   // Show status screen after submission
@@ -355,31 +400,66 @@ export default function SingerApp() {
           </div>
 
           <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search songs or artists…"
-            style={{width:"100%",padding:"11px 14px",background:"rgba(255,255,255,.05)",border:"1.5px solid rgba(255,255,255,.1)",borderRadius:10,color:"white",fontSize:13,outline:"none",marginBottom:10}} />
+            style={{width:"100%",padding:"11px 14px",background:"rgba(255,255,255,.05)",border:"1.5px solid rgba(255,255,255,.1)",borderRadius:10,color:"white",fontSize:13,outline:"none",marginBottom:14}} />
 
-          {!searching && filtered.length >= 30 && (
-            <div style={{fontSize:11,color:"rgba(255,255,255,.2)",marginBottom:8,textAlign:"right"}}>
-              Showing first 30 — refine your search for more specific results
+          {/* Bandeoke Categories */}
+          {categories.length > 0 && (
+            <div style={{marginBottom:12}}>
+              <div style={{fontFamily:"var(--fd)",fontSize:10,color:"var(--gold-dim)",letterSpacing:3,marginBottom:7}}>BANDEOKE CATEGORIES</div>
+              <div style={{display:"flex",gap:6,overflowX:"auto",paddingBottom:4}}>
+                {categories.map(c => (
+                  <button key={c} className={`genre-pill${category===c?" active":""}`}
+                    onClick={()=>setCategory(category===c?null:c)}>{c}</button>
+                ))}
+              </div>
             </div>
           )}
 
-          <div style={{display:"flex",gap:7,overflowX:"auto",paddingBottom:10,marginBottom:10}}>
-            {genres.map(g => <button key={g} className={`genre-pill${genre===g?" active":""}`} onClick={()=>setGenre(g)}>{g}</button>)}
-          </div>
+          {/* MusicBrainz Tags */}
+          {topTags.length > 0 && (
+            <div style={{marginBottom:14}}>
+              <div style={{fontFamily:"var(--fd)",fontSize:10,color:"rgba(255,255,255,.3)",letterSpacing:3,marginBottom:7}}>MUSICBRAINZ GENRES</div>
+              <div style={{display:"flex",gap:6,overflowX:"auto",paddingBottom:4,flexWrap:"wrap"}}>
+                {topTags.map(t => (
+                  <button key={t} onClick={()=>setMbTag(mbTag===t?null:t)}
+                    style={{padding:"5px 11px",borderRadius:20,fontSize:12,fontWeight:500,whiteSpace:"nowrap",cursor:"pointer",
+                      border:`1.5px solid ${mbTag===t?"rgba(255,255,255,.5)":"rgba(255,255,255,.1)"}`,
+                      background:mbTag===t?"rgba(255,255,255,.15)":"transparent",
+                      color:mbTag===t?"white":"rgba(255,255,255,.4)",transition:"all .15s"}}>
+                    {t}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Active filters summary */}
+          {(category || mbTag) && (
+            <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10,fontSize:12,color:"rgba(255,255,255,.4)"}}>
+              <span>Filtering by:</span>
+              {category && <span style={{background:"rgba(245,200,66,.15)",color:"var(--gold)",padding:"2px 8px",borderRadius:4}}>{category}</span>}
+              {mbTag && category && <span>or</span>}
+              {mbTag && <span style={{background:"rgba(255,255,255,.1)",color:"white",padding:"2px 8px",borderRadius:4}}>{mbTag}</span>}
+              <button onClick={()=>{setCategory(null);setMbTag(null);}} style={{background:"none",border:"none",color:"rgba(255,255,255,.3)",cursor:"pointer",fontSize:13}}>✕ clear</button>
+            </div>
+          )}
+
+          {/* Song count */}
+          {!isLoading && displayedSongs.length > 0 && (
+            <div style={{fontSize:11,color:"rgba(255,255,255,.2)",marginBottom:8,textAlign:"right"}}>
+              {displayedSongs.length} song{displayedSongs.length!==1?"s":""}
+              {displayedSongs.length >= 300 && !hasFilter ? " — use search or filters to narrow down" : ""}
+            </div>
+          )}
 
           <div style={{display:"flex",flexDirection:"column",gap:7,marginBottom:20}}>
-            {!search.trim() && genre === "All" && (
-              <div style={{textAlign:"center",padding:"32px 16px",color:"rgba(255,255,255,.25)",fontSize:13,lineHeight:1.6}}>
-                🔍 Search for a song or artist,<br/>or pick a genre to browse
-              </div>
+            {isLoading && (
+              <div style={{textAlign:"center",padding:"20px",color:"rgba(255,255,255,.2)",fontSize:13}}>Loading…</div>
             )}
-            {searching && (
-              <div style={{textAlign:"center",padding:"20px",color:"rgba(255,255,255,.2)",fontSize:13}}>Searching…</div>
-            )}
-            {!searching && (search.trim() || genre !== "All") && filtered.length===0 && (
+            {!isLoading && displayedSongs.length===0 && hasFilter && (
               <div style={{textAlign:"center",padding:"28px",color:"rgba(255,255,255,.25)",fontSize:13}}>No songs found</div>
             )}
-            {!searching && filtered.map(song => {
+            {!isLoading && displayedSongs.map(song => {
               const selected = !!picks.find(p => p.id===song.id);
               const disabled = !selected && picks.length>=3;
               return (
