@@ -817,7 +817,56 @@ async function listDriveFilesRecursive(accessToken, folderId, genre = null, dept
   return results;
 }
 
-// ─── MUSICBRAINZ ENRICHMENT ───────────────────────────────────────────────────
+// ─── MUSICBRAINZ + SPOTIFY ENRICHMENT ────────────────────────────────────────
+
+const SPOTIFY_CLIENT_ID = "982cf49589274cdeae0dae6b23cacf94";
+const SPOTIFY_CLIENT_SECRET = "0e107c8f94244979a0b91b1a8d0576b0";
+
+// Get Spotify access token via client credentials
+async function getSpotifyToken() {
+  const res = await fetch("https://accounts.spotify.com/api/token", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/x-www-form-urlencoded",
+      "Authorization": "Basic " + btoa(`${SPOTIFY_CLIENT_ID}:${SPOTIFY_CLIENT_SECRET}`),
+    },
+    body: "grant_type=client_credentials",
+  });
+  if (!res.ok) throw new Error("Failed to get Spotify token");
+  const data = await res.json();
+  return data.access_token;
+}
+
+// Look up a song on Spotify, return artist genres
+async function lookupSpotify(title, artist, token) {
+  try {
+    const q = encodeURIComponent(`track:${title} artist:${artist}`);
+    const res = await fetch(`https://api.spotify.com/v1/search?q=${q}&type=track&limit=1`, {
+      headers: { "Authorization": `Bearer ${token}` },
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    const tracks = data.tracks?.items;
+    if (!tracks || tracks.length === 0) return null;
+
+    const track = tracks[0];
+    const artistId = track.artists?.[0]?.id;
+    if (!artistId) return null;
+
+    // Fetch artist to get genres
+    const artistRes = await fetch(`https://api.spotify.com/v1/artists/${artistId}`, {
+      headers: { "Authorization": `Bearer ${token}` },
+    });
+    if (!artistRes.ok) return null;
+    const artistData = await artistRes.json();
+    const genres = (artistData.genres || []).slice(0, 5);
+
+    return genres.length > 0 ? genres : null;
+  } catch(e) {
+    console.error(`Spotify lookup failed for ${title} - ${artist}:`, e);
+    return null;
+  }
+}
 
 // Derive decade from year
 function yearToDecade(year) {
@@ -889,42 +938,56 @@ function SongsTab() {
   const runEnrichment = async () => {
     setEnriching(true);
     enrichCancelRef.current = false;
-    setEnrichProgress({ done: 0, total: 0, found: 0, notFound: 0 });
+    setEnrichProgress({ done: 0, total: 0, found: 0, notFound: 0, phase: "MusicBrainz" });
 
     try {
-      // Only enrich songs that don't have mb_id yet
+      // ── Phase 1: MusicBrainz for decade (songs missing mb_id) ──
       const unenriched = await sbFetch("/songs?mb_id=is.null&select=id,title,artist&order=artist.asc");
-      if (!unenriched || unenriched.length === 0) {
-        setEnrichProgress({ done: 0, total: 0, found: 0, notFound: 0, complete: true });
-        setEnriching(false);
-        return;
-      }
-
-      const total = unenriched.length;
+      const mbSongs = unenriched || [];
+      const total1 = mbSongs.length;
       let done = 0, found = 0, notFound = 0;
-      setEnrichProgress({ done, total, found, notFound });
+      setEnrichProgress({ done, total: total1, found, notFound, phase: "MusicBrainz (decade)" });
 
-      for (const song of unenriched) {
+      for (const song of mbSongs) {
         if (enrichCancelRef.current) break;
         if (!song.title || !song.artist) { done++; notFound++; continue; }
-
         const result = await lookupMusicBrainz(song.title, song.artist);
-
         if (result) {
-          await sbFetch(`/songs?id=eq.${song.id}`, {
-            method: "PATCH",
-            body: JSON.stringify(result),
-          });
+          await sbFetch(`/songs?id=eq.${song.id}`, { method: "PATCH", body: JSON.stringify(result) });
           found++;
-        } else {
-          notFound++;
-        }
-
+        } else { notFound++; }
         done++;
-        setEnrichProgress({ done, total, found, notFound });
-
-        // MusicBrainz rate limit: 1 request per second
+        setEnrichProgress({ done, total: total1, found, notFound, phase: "MusicBrainz (decade)" });
         await sleep(1100);
+      }
+
+      if (enrichCancelRef.current) { setEnrichProgress(p => ({ ...p, complete: true })); setEnriching(false); return; }
+
+      // ── Phase 2: Spotify for genre tags (songs missing tags) ──
+      const noTags = await sbFetch("/songs?tags=is.null&select=id,title,artist&order=artist.asc");
+      const spotifySongs = noTags || [];
+      const total2 = spotifySongs.length;
+      done = 0; found = 0; notFound = 0;
+      setEnrichProgress({ done, total: total2, found, notFound, phase: "Spotify (genres)" });
+
+      if (total2 > 0) {
+        let token = null;
+        try { token = await getSpotifyToken(); } catch(e) { setError("Spotify auth failed: " + e.message); }
+
+        if (token) {
+          for (const song of spotifySongs) {
+            if (enrichCancelRef.current) break;
+            if (!song.title || !song.artist) { done++; notFound++; continue; }
+            const genres = await lookupSpotify(song.title, song.artist, token);
+            if (genres) {
+              await sbFetch(`/songs?id=eq.${song.id}`, { method: "PATCH", body: JSON.stringify({ tags: genres }) });
+              found++;
+            } else { notFound++; }
+            done++;
+            setEnrichProgress({ done, total: total2, found, notFound, phase: "Spotify (genres)" });
+            await sleep(100); // Spotify is generous with rate limits
+          }
+        }
       }
 
       setEnrichProgress(p => ({ ...p, complete: true }));
@@ -933,6 +996,9 @@ function SongsTab() {
       console.error("Enrichment error:", e);
       setError("Enrichment failed: " + e.message);
     } finally {
+      setEnriching(false);
+    }
+  };
       setEnriching(false);
     }
   };
@@ -1125,10 +1191,10 @@ function SongsTab() {
       <div style={{background:"rgba(255,255,255,.03)",border:"1px solid var(--border)",borderRadius:14,padding:"24px",marginBottom:28}}>
         <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:16}}>
           <div>
-            <div style={{fontFamily:"var(--fd)",fontSize:20,color:"var(--gold)",letterSpacing:2,marginBottom:4}}>🎵 MUSICBRAINZ METADATA</div>
+            <div style={{fontFamily:"var(--fd)",fontSize:20,color:"var(--gold)",letterSpacing:2,marginBottom:4}}>🎵 METADATA ENRICHMENT</div>
             <div style={{fontSize:13,color:"rgba(255,255,255,.4)",lineHeight:1.6}}>
-              Looks up decade and genre tags for each song.<br/>
-              Rate limited to 1/sec — 788 songs takes ~15 mins. Run before a gig.
+              Phase 1: MusicBrainz → decade (1 req/sec, ~13 mins for 788 songs)<br/>
+              Phase 2: Spotify → genre tags (fast, runs after MusicBrainz)
             </div>
           </div>
           <div style={{display:"flex",gap:8,flexShrink:0}}>
@@ -1155,7 +1221,7 @@ function SongsTab() {
               }} />
             </div>
             <div style={{display:"flex",justifyContent:"space-between",fontSize:12,color:"rgba(255,255,255,.5)"}}>
-              <span>{enrichProgress.done} / {enrichProgress.total} songs processed</span>
+              <span>{enrichProgress.phase && <span style={{color:"var(--gold2)",marginRight:8}}>{enrichProgress.phase}</span>}{enrichProgress.done} / {enrichProgress.total}</span>
               <span style={{color:"var(--green)"}}>✓ {enrichProgress.found} found</span>
               <span style={{color:"rgba(255,255,255,.3)"}}>✗ {enrichProgress.notFound} not found</span>
             </div>
