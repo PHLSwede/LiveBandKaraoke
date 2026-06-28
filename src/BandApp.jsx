@@ -441,6 +441,7 @@ function QueueTab() {
   const [queue, setQueue] = useState([]);
   const [bullpen, setBullpen] = useState([]);
   const [nowPlaying, setNowPlaying] = useState(null);
+  const [autoScroll, setAutoScroll] = useState(false);
   const [subTab, setSubTab] = useState("bullpen");
   const [dragIdx, setDragIdx] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -452,14 +453,16 @@ function QueueTab() {
       const event = evts && evts.length > 0 ? evts[0] : null;
       setActiveEvent(event);
       if (!event) { setQueue([]); setBullpen([]); setNowPlaying(null); setLoading(false); return; }
-      const [q, r, playing] = await Promise.all([
+      const [q, r, playing, stageState] = await Promise.all([
         api.queue.list(event.id),
         api.requests.list(event.id),
         api.queue.playing(event.id),
+        sbFetch("/stage_state?id=eq.1&select=auto_scroll"),
       ]);
       setQueue(q || []);
       setBullpen(r || []);
       setNowPlaying(playing && playing.length > 0 ? playing[0] : null);
+      if (stageState && stageState.length > 0) setAutoScroll(stageState[0].auto_scroll);
     } catch(e) { console.error(e); }
     finally { setLoading(false); }
   };
@@ -474,6 +477,31 @@ function QueueTab() {
     try {
       if (nowPlaying) await api.queue.update(nowPlaying.id, { status: "done" });
       await api.queue.update(item.id, { status: "playing" });
+      // Load song on stage but don't start scrolling yet
+      await sbFetch("/stage_state?id=eq.1", {
+        method: "PATCH",
+        body: JSON.stringify({ auto_scroll: false, updated_at: new Date().toISOString() }),
+      });
+      await loadData();
+    } catch(e) { console.error(e); }
+  };
+
+  const handleStartSong = async () => {
+    try {
+      await sbFetch("/stage_state?id=eq.1", {
+        method: "PATCH",
+        body: JSON.stringify({ auto_scroll: true, updated_at: new Date().toISOString() }),
+      });
+      await loadData();
+    } catch(e) { console.error(e); }
+  };
+
+  const handlePause = async () => {
+    try {
+      await sbFetch("/stage_state?id=eq.1", {
+        method: "PATCH",
+        body: JSON.stringify({ auto_scroll: false, updated_at: new Date().toISOString() }),
+      });
       await loadData();
     } catch(e) { console.error(e); }
   };
@@ -482,6 +510,10 @@ function QueueTab() {
     if (!nowPlaying) return;
     try {
       await api.queue.update(nowPlaying.id, { status: "done" });
+      await sbFetch("/stage_state?id=eq.1", {
+        method: "PATCH",
+        body: JSON.stringify({ auto_scroll: false, updated_at: new Date().toISOString() }),
+      });
       await loadData();
     } catch(e) { console.error(e); }
   };
@@ -527,15 +559,22 @@ function QueueTab() {
 
       {/* Now playing bar */}
       {nowPlaying && (
-        <div style={{padding:"12px 20px",background:"rgba(245,200,66,.07)",borderBottom:"2px solid rgba(245,200,66,.2)",display:"flex",alignItems:"center",justifyContent:"space-between",flexShrink:0}}>
-          <div style={{display:"flex",alignItems:"center",gap:12}}>
+        <div style={{padding:"12px 20px",background:"rgba(245,200,66,.07)",borderBottom:"2px solid rgba(245,200,66,.2)",display:"flex",alignItems:"center",justifyContent:"space-between",flexShrink:0,gap:12}}>
+          <div style={{display:"flex",alignItems:"center",gap:12,minWidth:0}}>
             <div style={{width:8,height:8,borderRadius:"50%",background:"var(--gold)",boxShadow:"0 0 8px var(--gold)",flexShrink:0}} />
-            <div>
-              <div style={{fontWeight:700,fontSize:15,color:"white"}}>{nowPlaying.song_title}</div>
-              <div style={{color:"rgba(255,255,255,.45)",fontSize:12,marginTop:1}}>{nowPlaying.singer_name} · {nowPlaying.song_artist} · <span style={{fontFamily:"var(--fm)"}}>{nowPlaying.song_key}</span></div>
+            <div style={{minWidth:0}}>
+              <div style={{fontWeight:700,fontSize:15,color:"white",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{nowPlaying.song_title}</div>
+              <div style={{color:"rgba(255,255,255,.45)",fontSize:12,marginTop:1}}>{nowPlaying.singer_name} · {nowPlaying.song_artist}</div>
             </div>
           </div>
-          <button onClick={handleComplete} style={{padding:"8px 16px",background:"var(--red)",border:"none",borderRadius:7,color:"white",fontFamily:"var(--fd)",fontSize:13,letterSpacing:1}}>✓ COMPLETE</button>
+          <div style={{display:"flex",gap:6,flexShrink:0}}>
+            {!autoScroll ? (
+              <button onClick={handleStartSong} style={{padding:"8px 14px",background:"var(--green)",border:"none",borderRadius:7,color:"white",fontFamily:"var(--fd)",fontSize:13,letterSpacing:1,cursor:"pointer"}}>▶ START SONG</button>
+            ) : (
+              <button onClick={handlePause} style={{padding:"8px 14px",background:"rgba(255,255,255,.1)",border:"none",borderRadius:7,color:"white",fontFamily:"var(--fd)",fontSize:13,letterSpacing:1,cursor:"pointer"}}>⏸ PAUSE</button>
+            )}
+            <button onClick={handleComplete} style={{padding:"8px 14px",background:"var(--red)",border:"none",borderRadius:7,color:"white",fontFamily:"var(--fd)",fontSize:13,letterSpacing:1,cursor:"pointer"}}>✓ DONE</button>
+          </div>
         </div>
       )}
 
@@ -732,12 +771,12 @@ function PrompterTab() {
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
               <span style={{fontSize:13,color:"rgba(255,255,255,.6)"}}>Scroll speed</span>
               <div style={{display:"flex",alignItems:"center",gap:8}}>
-                <button onClick={()=>updateSpeed(Math.max(5,scrollSpeed-5))} style={{width:28,height:28,borderRadius:6,border:"none",background:"rgba(255,255,255,.1)",color:"white",fontSize:16,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>−</button>
+                <button onClick={()=>updateSpeed(Math.max(0,scrollSpeed-5))} style={{width:28,height:28,borderRadius:6,border:"none",background:"rgba(255,255,255,.1)",color:"white",fontSize:16,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>−</button>
                 <span style={{fontFamily:"var(--fm)",fontSize:14,color:"var(--gold)",minWidth:28,textAlign:"center"}}>{scrollSpeed}</span>
                 <button onClick={()=>updateSpeed(Math.min(100,scrollSpeed+5))} style={{width:28,height:28,borderRadius:6,border:"none",background:"rgba(255,255,255,.1)",color:"white",fontSize:16,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>+</button>
               </div>
             </div>
-            <input type="range" min={5} max={100} value={scrollSpeed}
+            <input type="range" min={0} max={100} value={scrollSpeed}
               onChange={e=>updateSpeed(+e.target.value)} style={{width:"100%"}} />
             <div style={{display:"flex",justifyContent:"space-between",marginTop:4}}>
               <span style={{fontSize:11,color:"rgba(255,255,255,.2)"}}>Slow</span>

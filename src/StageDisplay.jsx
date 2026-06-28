@@ -230,7 +230,7 @@ export default function StageDisplay() {
   useEffect(() => {
     const tick = () => {
       if (autoScroll && contentRef.current && nowPlaying && !sheetLoading) {
-        posRef.current += scrollSpeed / 800;
+        posRef.current += scrollSpeed / 400;
         contentRef.current.scrollTop = posRef.current;
       }
       animRef.current = requestAnimationFrame(tick);
@@ -247,7 +247,7 @@ export default function StageDisplay() {
   const localSpeedRef = useRef(35);
 
   const updateStageSpeed = async (speed) => {
-    const clamped = Math.max(5, Math.min(100, speed));
+    const clamped = Math.max(0, Math.min(100, speed));
     localSpeedRef.current = clamped;
     setScrollSpeed(clamped);
     clearTimeout(speedDebounceRef.current);
@@ -321,18 +321,23 @@ export default function StageDisplay() {
           </div>
 
           {/* Scroll controls in top bar */}
-          <div style={{display:"flex",alignItems:"center",gap:10,flexShrink:0}}>
+          <div style={{display:"flex",alignItems:"center",gap:8,flexShrink:0}}>
             <div style={{display:"flex",alignItems:"center",gap:6,background:"rgba(255,255,255,.06)",borderRadius:8,padding:"6px 10px"}}>
               <button onClick={()=>updateStageSpeed(scrollSpeed-5)} style={{width:28,height:28,borderRadius:5,border:"none",background:"rgba(255,255,255,.1)",color:"white",fontSize:16,cursor:"pointer"}}>−</button>
               <span style={{fontFamily:"var(--fm)",fontSize:13,color:"rgba(255,255,255,.5)",minWidth:24,textAlign:"center"}}>{scrollSpeed}</span>
               <button onClick={()=>updateStageSpeed(scrollSpeed+5)} style={{width:28,height:28,borderRadius:5,border:"none",background:"rgba(255,255,255,.1)",color:"white",fontSize:16,cursor:"pointer"}}>+</button>
             </div>
-            <button onClick={toggleStageAutoScroll} style={{
-              padding:"6px 14px",borderRadius:8,border:"none",cursor:"pointer",
-              background:autoScroll?"var(--gold)":"rgba(255,255,255,.1)",
-              color:autoScroll?"var(--stage-deeper)":"rgba(255,255,255,.5)",
-              fontFamily:"var(--fd)",fontSize:13,letterSpacing:1,
-            }}>{autoScroll?"⏸ PAUSE":"▶ AUTO"}</button>
+            {!autoScroll ? (
+              <button onClick={toggleStageAutoScroll} style={{padding:"7px 16px",borderRadius:8,border:"none",cursor:"pointer",background:"#27ae60",color:"white",fontFamily:"var(--fd)",fontSize:14,letterSpacing:1}}>▶ START</button>
+            ) : (
+              <button onClick={toggleStageAutoScroll} style={{padding:"7px 16px",borderRadius:8,border:"none",cursor:"pointer",background:"rgba(255,255,255,.1)",color:"rgba(255,255,255,.7)",fontFamily:"var(--fd)",fontSize:14,letterSpacing:1}}>⏸ PAUSE</button>
+            )}
+            <button onClick={async () => {
+              if (nowPlaying) {
+                await sbFetch(`/queue?id=eq.${nowPlaying.id}`, { method: "PATCH", body: JSON.stringify({ status: "done" }) });
+                await sbFetch("/stage_state?id=eq.1", { method: "PATCH", body: JSON.stringify({ auto_scroll: false, updated_at: new Date().toISOString() }) });
+              }
+            }} style={{padding:"7px 14px",borderRadius:8,border:"none",cursor:"pointer",background:"rgba(192,57,43,.3)",color:"white",fontFamily:"var(--fd)",fontSize:14,letterSpacing:1}}>✓ DONE</button>
           </div>
 
           <div style={{textAlign:"right",flexShrink:0}}>
