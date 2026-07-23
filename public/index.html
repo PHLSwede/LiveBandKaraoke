@@ -16,7 +16,7 @@
         var p = window.location.search.slice(1);
         if (p && p.startsWith('p=')) {
           var path = decodeURIComponent(p.slice(2));
-          window.history.replaceState(null, null, '/LiveBandKaraoke/' + path);
+          window.history.replaceState(null, null, '/' + path);
         }
       })();
     </script>

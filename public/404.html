@@ -4,13 +4,10 @@
     <meta charset="utf-8">
     <title>Purple Sandwich Karaoke</title>
     <script>
-      // Redirect /LiveBandKaraoke/sing etc back through index.html
       var l = window.location;
-      var base = '/LiveBandKaraoke';
-      var path = l.pathname.replace(base, '') || '/';
       l.replace(
         l.protocol + '//' + l.hostname + (l.port ? ':' + l.port : '') +
-        base + '/?p=' + encodeURIComponent(path.slice(1) + l.search) +
+        '/?p=' + encodeURIComponent(l.pathname.slice(1) + l.search) +
         (l.hash || '')
       );
     </script>
