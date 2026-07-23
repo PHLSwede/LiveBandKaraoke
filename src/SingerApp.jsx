@@ -367,6 +367,8 @@ export default function SingerApp() {
   const isLoading = hasFilter ? searching : allLoading;
 
 
+  const [browseMode, setBrowseMode] = useState("featured"); // "featured" | "all"
+
   const toggle = (song) => {
     if (picks.find(p => p.id === song.id)) { setPicks(picks.filter(p => p.id !== song.id)); return; }
     if (picks.length < 3) setPicks([...picks, song]);
@@ -432,40 +434,6 @@ export default function SingerApp() {
 
         <div style={{padding:"20px",maxWidth:560,margin:"0 auto"}}>
 
-          {/* Featured Songs */}
-          {featuredSongs.length > 0 && (
-            <div style={{marginBottom:24}}>
-              <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:12}}>
-                <span style={{fontSize:18}}>⭐</span>
-                <div>
-                  <div style={{fontFamily:"var(--fd)",fontSize:16,color:"var(--gold)",letterSpacing:2,lineHeight:1}}>FEATURED SONGS</div>
-                  <div style={{fontSize:11,color:"rgba(255,255,255,.3)",marginTop:2}}>HHH × Purple Sandwich · July 25th</div>
-                </div>
-              </div>
-              <div style={{display:"flex",flexDirection:"column",gap:6}}>
-                {featuredSongs.map(song => {
-                  const selected = !!picks.find(p => p.id===song.id);
-                  const disabled = !selected && picks.length>=3;
-                  return (
-                    <div key={song.id} className={`song-card${selected?" selected":""}${disabled?" disabled":""}`}
-                      onClick={()=>!disabled&&toggle(song)}
-                      style={{background:selected?"rgba(245,200,66,.12)":"rgba(245,200,66,.04)",borderColor:selected?"var(--gold)":"rgba(245,200,66,.2)"}}>
-                      <div style={{width:24,height:24,borderRadius:"50%",flexShrink:0,border:`2px solid ${selected?"var(--gold)":"rgba(245,200,66,.3)"}`,background:selected?"var(--gold)":"transparent",display:"flex",alignItems:"center",justifyContent:"center",transition:"all .15s"}}>
-                        {selected && <span style={{color:"var(--deep)",fontSize:12,fontWeight:700}}>✓</span>}
-                      </div>
-                      <div style={{flex:1,minWidth:0}}>
-                        <div style={{fontWeight:600,fontSize:14,color:"white"}}>{song.title}</div>
-                        <div style={{color:"rgba(255,255,255,.4)",fontSize:12,marginTop:2}}>{song.artist}</div>
-                      </div>
-                      {song.song_key && <div style={{fontFamily:"monospace",fontSize:11,color:selected?"var(--gold)":"rgba(255,255,255,.3)",flexShrink:0}}>{song.song_key}</div>}
-                    </div>
-                  );
-                })}
-              </div>
-              <div style={{height:1,background:"rgba(245,200,66,.15)",margin:"20px 0"}} />
-            </div>
-          )}
-
           {/* Name */}
           <div style={{marginBottom:16}}>
             <label style={{display:"block",fontFamily:"var(--fd)",fontSize:12,color:"var(--gold-dim)",letterSpacing:3,marginBottom:7}}>YOUR NAME</label>
@@ -484,7 +452,7 @@ export default function SingerApp() {
                 {instagramConsent && <span style={{color:"var(--deep)",fontSize:13,fontWeight:700}}>✓</span>}
               </div>
               <span style={{fontSize:13,color:"rgba(255,255,255,.6)",lineHeight:1.5}}>
-                May we post a clip of your performance on our Instagram page?
+                May we post a clip of your performance on our Instagram?
                 <span style={{color:"rgba(255,255,255,.3)",fontSize:11,display:"block",marginTop:2}}>@purplesandwichpresents</span>
               </span>
             </label>
@@ -510,7 +478,6 @@ export default function SingerApp() {
             </div>
           )}
 
-          {/* Submit button */}
           {error && <div style={{marginBottom:10,padding:"11px 14px",background:"rgba(192,57,43,.15)",border:"1px solid rgba(192,57,43,.4)",borderRadius:8,color:"#e74c3c",fontSize:13}}>{error}</div>}
 
           <button className={`submit-btn ${canSubmit?"ready":"not-ready"}`} onClick={submit} disabled={!canSubmit} style={{marginBottom:24}}>
@@ -521,93 +488,138 @@ export default function SingerApp() {
               : `SUBMIT ${picks.length} PICK${picks.length>1?"S":""}`}
           </button>
 
-          {/* Search */}
-          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10}}>
-            <label style={{fontFamily:"var(--fd)",fontSize:12,color:"var(--gold-dim)",letterSpacing:3}}>PICK UP TO 3 SONGS</label>
-            <span style={{fontSize:12,fontWeight:600,color:picks.length===3?"var(--gold)":"rgba(255,255,255,.3)"}}>{picks.length} / 3</span>
+          {/* Browse mode tabs */}
+          <div style={{display:"flex",gap:8,marginBottom:20}}>
+            <button onClick={()=>setBrowseMode("featured")} style={{
+              flex:1,padding:"12px 16px",borderRadius:24,border:"none",cursor:"pointer",
+              background:browseMode==="featured"?"var(--gold)":"rgba(255,255,255,.07)",
+              color:browseMode==="featured"?"var(--deep)":"rgba(255,255,255,.5)",
+              fontFamily:"var(--fd)",fontSize:15,letterSpacing:2,transition:"all .2s"
+            }}>⭐ FEATURED</button>
+            <button onClick={()=>setBrowseMode("all")} style={{
+              flex:1,padding:"12px 16px",borderRadius:24,border:"none",cursor:"pointer",
+              background:browseMode==="all"?"var(--gold)":"rgba(255,255,255,.07)",
+              color:browseMode==="all"?"var(--deep)":"rgba(255,255,255,.5)",
+              fontFamily:"var(--fd)",fontSize:15,letterSpacing:2,transition:"all .2s"
+            }}>🎵 ALL SONGS</button>
           </div>
 
-          <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search songs or artists…"
-            style={{width:"100%",padding:"11px 14px",background:"rgba(255,255,255,.05)",border:"1.5px solid rgba(255,255,255,.1)",borderRadius:10,color:"white",fontSize:13,outline:"none",marginBottom:14}} />
-
-          {/* Bandeoke Categories */}
-          {categories.length > 0 && (
-            <div style={{marginBottom:12}}>
-              <div style={{fontFamily:"var(--fd)",fontSize:10,color:"var(--gold-dim)",letterSpacing:3,marginBottom:7}}>BANDEOKE CATEGORIES</div>
-              <div style={{display:"flex",gap:6,overflowX:"auto",paddingBottom:4}}>
-                {categories.map(c => (
-                  <button key={c} className={`genre-pill${category===c?" active":""}`}
-                    onClick={()=>setCategory(category===c?null:c)}>{c}</button>
-                ))}
+          {/* FEATURED MODE */}
+          {browseMode==="featured" && (
+            <div>
+              <div style={{fontFamily:"var(--fd)",fontSize:11,color:"rgba(255,255,255,.3)",letterSpacing:3,marginBottom:12}}>HHH × PURPLE SANDWICH · JULY 25TH</div>
+              <div style={{display:"flex",flexDirection:"column",gap:7,marginBottom:16}}>
+                {featuredSongs.length === 0 && (
+                  <div style={{textAlign:"center",padding:"28px",color:"rgba(255,255,255,.25)",fontSize:13}}>Loading…</div>
+                )}
+                {featuredSongs.map(song => {
+                  const selected = !!picks.find(p => p.id===song.id);
+                  const disabled = !selected && picks.length>=3;
+                  return (
+                    <div key={song.id} className={`song-card${selected?" selected":""}${disabled?" disabled":""}`}
+                      onClick={()=>!disabled&&toggle(song)}
+                      style={{background:selected?"rgba(245,200,66,.12)":"rgba(245,200,66,.04)",borderColor:selected?"var(--gold)":"rgba(245,200,66,.2)"}}>
+                      <div style={{width:24,height:24,borderRadius:"50%",flexShrink:0,
+                        border:`2px solid ${selected?"var(--gold)":"rgba(245,200,66,.3)"}`,
+                        background:selected?"var(--gold)":"transparent",
+                        display:"flex",alignItems:"center",justifyContent:"center",transition:"all .15s"}}>
+                        {selected && <span style={{color:"var(--deep)",fontSize:12,fontWeight:700}}>✓</span>}
+                      </div>
+                      <div style={{flex:1,minWidth:0}}>
+                        <div style={{fontWeight:600,fontSize:14,color:"white"}}>{song.title}</div>
+                        <div style={{color:"rgba(255,255,255,.4)",fontSize:12,marginTop:2}}>{song.artist}</div>
+                      </div>
+                      {song.song_key && <div style={{fontFamily:"monospace",fontSize:11,color:selected?"var(--gold)":"rgba(255,255,255,.3)",flexShrink:0}}>{song.song_key}</div>}
+                    </div>
+                  );
+                })}
               </div>
+              <button onClick={()=>setBrowseMode("all")} style={{width:"100%",padding:"10px",background:"none",border:"1px solid rgba(255,255,255,.1)",borderRadius:10,color:"rgba(255,255,255,.3)",fontSize:13,cursor:"pointer"}}>
+                Browse all {allSongs.length} songs →
+              </button>
             </div>
           )}
 
-          {/* MusicBrainz Tags */}
-          {topTags.length > 0 && (
-            <div style={{marginBottom:14}}>
-              <div style={{fontFamily:"var(--fd)",fontSize:10,color:"rgba(255,255,255,.3)",letterSpacing:3,marginBottom:7}}>MUSICBRAINZ GENRES</div>
-              <div style={{display:"flex",gap:6,overflowX:"auto",paddingBottom:4,flexWrap:"wrap"}}>
-                {topTags.map(t => (
-                  <button key={t} onClick={()=>setMbTag(mbTag===t?null:t)}
-                    style={{padding:"5px 11px",borderRadius:20,fontSize:12,fontWeight:500,whiteSpace:"nowrap",cursor:"pointer",
-                      border:`1.5px solid ${mbTag===t?"rgba(255,255,255,.5)":"rgba(255,255,255,.1)"}`,
-                      background:mbTag===t?"rgba(255,255,255,.15)":"transparent",
-                      color:mbTag===t?"white":"rgba(255,255,255,.4)",transition:"all .15s"}}>
-                    {t}
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
+          {/* ALL SONGS MODE */}
+          {browseMode==="all" && (
+            <div>
+              <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search songs or artists…"
+                style={{width:"100%",padding:"11px 14px",background:"rgba(255,255,255,.05)",border:"1.5px solid rgba(255,255,255,.1)",borderRadius:10,color:"white",fontSize:13,outline:"none",marginBottom:14}} />
 
-          {/* Active filters */}
-          {(category || mbTag) && (
-            <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10,fontSize:12,color:"rgba(255,255,255,.4)"}}>
-              <span>Filtering by:</span>
-              {category && <span style={{background:"rgba(245,200,66,.15)",color:"var(--gold)",padding:"2px 8px",borderRadius:4}}>{category}</span>}
-              {mbTag && category && <span>or</span>}
-              {mbTag && <span style={{background:"rgba(255,255,255,.1)",color:"white",padding:"2px 8px",borderRadius:4}}>{mbTag}</span>}
-              <button onClick={()=>{setCategory(null);setMbTag(null);}} style={{background:"none",border:"none",color:"rgba(255,255,255,.3)",cursor:"pointer",fontSize:13}}>✕ clear</button>
-            </div>
-          )}
-
-          {/* Song count */}
-          {!isLoading && displayedSongs.length > 0 && (
-            <div style={{fontSize:11,color:"rgba(255,255,255,.2)",marginBottom:8,textAlign:"right"}}>
-              {displayedSongs.length} song{displayedSongs.length!==1?"s":""}
-              {displayedSongs.length >= 300 && !hasFilter ? " — search or filter to narrow down" : ""}
-            </div>
-          )}
-
-          {/* Song list */}
-          <div style={{display:"flex",flexDirection:"column",gap:7,marginBottom:20}}>
-            {isLoading && (
-              <div style={{textAlign:"center",padding:"20px",color:"rgba(255,255,255,.2)",fontSize:13}}>Loading…</div>
-            )}
-            {!isLoading && displayedSongs.length===0 && hasFilter && (
-              <div style={{textAlign:"center",padding:"28px",color:"rgba(255,255,255,.25)",fontSize:13}}>No songs found</div>
-            )}
-            {!isLoading && displayedSongs.map(song => {
-              const selected = !!picks.find(p => p.id===song.id);
-              const disabled = !selected && picks.length>=3;
-              return (
-                <div key={song.id} className={`song-card${selected?" selected":""}${disabled?" disabled":""}`} onClick={()=>!disabled&&toggle(song)}>
-                  <div style={{width:24,height:24,borderRadius:"50%",flexShrink:0,border:`2px solid ${selected?"var(--gold)":"rgba(255,255,255,.2)"}`,background:selected?"var(--gold)":"transparent",display:"flex",alignItems:"center",justifyContent:"center",transition:"all .15s"}}>
-                    {selected && <span style={{color:"var(--deep)",fontSize:12,fontWeight:700}}>✓</span>}
-                  </div>
-                  <div style={{flex:1,minWidth:0}}>
-                    <div style={{fontWeight:600,fontSize:14,color:"white"}}>{song.title}</div>
-                    <div style={{color:"rgba(255,255,255,.4)",fontSize:12,marginTop:2}}>{song.artist}</div>
-                  </div>
-                  <div style={{textAlign:"right",flexShrink:0}}>
-                    {song.genre && <div style={{fontSize:11,color:"rgba(255,255,255,.25)",marginBottom:2}}>{song.genre}</div>}
-                    {song.song_key && <div style={{fontFamily:"monospace",fontSize:11,color:selected?"var(--gold)":"rgba(255,255,255,.3)"}}>{song.song_key}</div>}
+              {categories.length > 0 && (
+                <div style={{marginBottom:12}}>
+                  <div style={{fontFamily:"var(--fd)",fontSize:10,color:"var(--gold-dim)",letterSpacing:3,marginBottom:7}}>BANDEOKE CATEGORIES</div>
+                  <div style={{display:"flex",gap:6,overflowX:"auto",paddingBottom:4}}>
+                    {categories.map(c => (
+                      <button key={c} className={`genre-pill${category===c?" active":""}`} onClick={()=>setCategory(category===c?null:c)}>{c}</button>
+                    ))}
                   </div>
                 </div>
-              );
-            })}
-          </div>
+              )}
+
+              {topTags.length > 0 && (
+                <div style={{marginBottom:14}}>
+                  <div style={{fontFamily:"var(--fd)",fontSize:10,color:"rgba(255,255,255,.3)",letterSpacing:3,marginBottom:7}}>GENRES</div>
+                  <div style={{display:"flex",gap:6,overflowX:"auto",paddingBottom:4,flexWrap:"wrap"}}>
+                    {topTags.map(t => (
+                      <button key={t} onClick={()=>setMbTag(mbTag===t?null:t)}
+                        style={{padding:"5px 11px",borderRadius:20,fontSize:12,fontWeight:500,whiteSpace:"nowrap",cursor:"pointer",
+                          border:`1.5px solid ${mbTag===t?"rgba(255,255,255,.5)":"rgba(255,255,255,.1)"}`,
+                          background:mbTag===t?"rgba(255,255,255,.15)":"transparent",
+                          color:mbTag===t?"white":"rgba(255,255,255,.4)",transition:"all .15s"}}>
+                        {t}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {(category || mbTag) && (
+                <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10,fontSize:12,color:"rgba(255,255,255,.4)"}}>
+                  <span>Filtering by:</span>
+                  {category && <span style={{background:"rgba(245,200,66,.15)",color:"var(--gold)",padding:"2px 8px",borderRadius:4}}>{category}</span>}
+                  {mbTag && category && <span>or</span>}
+                  {mbTag && <span style={{background:"rgba(255,255,255,.1)",color:"white",padding:"2px 8px",borderRadius:4}}>{mbTag}</span>}
+                  <button onClick={()=>{setCategory(null);setMbTag(null);}} style={{background:"none",border:"none",color:"rgba(255,255,255,.3)",cursor:"pointer",fontSize:13}}>✕ clear</button>
+                </div>
+              )}
+
+              {!isLoading && displayedSongs.length > 0 && (
+                <div style={{fontSize:11,color:"rgba(255,255,255,.2)",marginBottom:8,textAlign:"right"}}>
+                  {displayedSongs.length} songs{displayedSongs.length>=300&&!hasFilter?" — search to narrow down":""}
+                </div>
+              )}
+
+              <div style={{display:"flex",flexDirection:"column",gap:7,marginBottom:20}}>
+                {isLoading && <div style={{textAlign:"center",padding:"20px",color:"rgba(255,255,255,.2)",fontSize:13}}>Loading…</div>}
+                {!isLoading && displayedSongs.length===0 && hasFilter && (
+                  <div style={{textAlign:"center",padding:"28px",color:"rgba(255,255,255,.25)",fontSize:13}}>No songs found</div>
+                )}
+                {!isLoading && displayedSongs.map(song => {
+                  const selected = !!picks.find(p => p.id===song.id);
+                  const disabled = !selected && picks.length>=3;
+                  return (
+                    <div key={song.id} className={`song-card${selected?" selected":""}${disabled?" disabled":""}`} onClick={()=>!disabled&&toggle(song)}>
+                      <div style={{width:24,height:24,borderRadius:"50%",flexShrink:0,
+                        border:`2px solid ${selected?"var(--gold)":"rgba(255,255,255,.2)"}`,
+                        background:selected?"var(--gold)":"transparent",
+                        display:"flex",alignItems:"center",justifyContent:"center",transition:"all .15s"}}>
+                        {selected && <span style={{color:"var(--deep)",fontSize:12,fontWeight:700}}>✓</span>}
+                      </div>
+                      <div style={{flex:1,minWidth:0}}>
+                        <div style={{fontWeight:600,fontSize:14,color:"white"}}>{song.title}</div>
+                        <div style={{color:"rgba(255,255,255,.4)",fontSize:12,marginTop:2}}>{song.artist}</div>
+                      </div>
+                      <div style={{textAlign:"right",flexShrink:0}}>
+                        {song.genre && <div style={{fontSize:11,color:"rgba(255,255,255,.25)",marginBottom:2}}>{song.genre}</div>}
+                        {song.song_key && <div style={{fontFamily:"monospace",fontSize:11,color:selected?"var(--gold)":"rgba(255,255,255,.3)"}}>{song.song_key}</div>}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
 
           <div style={{textAlign:"center",marginTop:4,marginBottom:20,color:"rgba(255,255,255,.1)",fontSize:11,letterSpacing:2,fontFamily:"var(--fd)"}}>
             WATKINS DRINKERY · 1712 S. 10TH ST.
