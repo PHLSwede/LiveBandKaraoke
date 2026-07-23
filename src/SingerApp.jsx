@@ -24,12 +24,18 @@ async function getActiveEvent() {
   return list && list.length > 0 ? list[0] : null;
 }
 
-async function submitRequest(singerName, songs, eventId) {
+async function submitRequest(singerName, songs, eventId, instagramConsent, instagramHandle) {
   // Generate a session ID the singer keeps in browser memory
   const sessionId = crypto.randomUUID();
   const [req] = await sbFetch("/requests", {
     method: "POST",
-    body: JSON.stringify({ singer_name: singerName, event_id: eventId, session_id: sessionId }),
+    body: JSON.stringify({
+      singer_name: singerName,
+      event_id: eventId,
+      session_id: sessionId,
+      instagram_consent: instagramConsent,
+      instagram_handle: instagramHandle || null,
+    }),
   });
   await sbFetch("/request_songs", {
     method: "POST",
@@ -64,6 +70,40 @@ async function checkStatus(requestId, sessionId) {
     }
   }
   return { status: "unknown" };
+}
+
+// Featured songs for HHH x Purple Sandwich event
+const FEATURED_SONG_TITLES = [
+  "Total Eclipse Of The Heart",
+  "Fuck You",
+  "Hungry Like The Wolf",
+  "Be OK",
+  "I Love Rock And Roll",
+  "Since U Been Gone",
+  "How Bad Do U Want Me",
+  "99 Red Balloons",
+  "Misery Business",
+  "It's The End of the World As We Know It (and I Feel Fine)",
+  "Take Me Or Leave Me",
+  "A Bar Song (Tipsy)",
+  "If it Makes You Happy",
+  "Wannabe",
+  "Isn't She Lovely",
+  "Psycho Killer",
+  "London Calling",
+  "When You Were Young",
+  "The Boys Are Back In Town",
+  "Mary Jane's Last Dance",
+  "A Thousand Miles",
+  "Hash Pipe",
+];
+
+async function fetchFeaturedSongs() {
+  // Fetch songs matching the featured titles
+  const songs = await sbFetch("/songs?select=id,title,artist,genre,song_key&order=title.asc") || [];
+  return songs.filter(s => FEATURED_SONG_TITLES.some(t => 
+    s.title?.toLowerCase().trim() === t.toLowerCase().trim()
+  ));
 }
 
 // Fetch Bandeoke categories (Drive folder names = genre column)
@@ -275,15 +315,18 @@ export default function SingerApp() {
   const [eventLoading, setEventLoading] = useState(true);
   const [name, setName] = useState("");
   const [search, setSearch] = useState("");
-  const [category, setCategory] = useState(null);   // Bandeoke category (Drive folder)
-  const [mbTag, setMbTag] = useState(null);          // MusicBrainz tag
+  const [category, setCategory] = useState(null);
+  const [mbTag, setMbTag] = useState(null);
   const [categories, setCategories] = useState([]);
   const [topTags, setTopTags] = useState([]);
   const [results, setResults] = useState([]);
-  const [allSongs, setAllSongs] = useState([]);      // full list for default browse
+  const [allSongs, setAllSongs] = useState([]);
+  const [featuredSongs, setFeaturedSongs] = useState([]);
   const [allLoading, setAllLoading] = useState(true);
   const [searching, setSearching] = useState(false);
   const [picks, setPicks] = useState([]);
+  const [instagramConsent, setInstagramConsent] = useState(false);
+  const [instagramHandle, setInstagramHandle] = useState("");
   const [submitted, setSubmitted] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -298,7 +341,7 @@ export default function SingerApp() {
   useEffect(() => {
     fetchCategories().then(setCategories).catch(console.error);
     fetchTopTags().then(setTopTags).catch(console.error);
-    // Load full list for default browse (all songs, alphabetical)
+    fetchFeaturedSongs().then(setFeaturedSongs).catch(console.error);
     fetchSongs("", null, null)
       .then(songs => { setAllSongs(songs); setAllLoading(false); })
       .catch(() => setAllLoading(false));
@@ -333,14 +376,15 @@ export default function SingerApp() {
     if (!name.trim() || picks.length === 0 || loading || !activeEvent) return;
     setLoading(true); setError(null);
     try {
-      const { requestId, sessionId } = await submitRequest(name.trim(), picks, activeEvent.id);
+      const { requestId, sessionId } = await submitRequest(name.trim(), picks, activeEvent.id, instagramConsent, instagramHandle.trim());
       setSubmitted({ requestId, sessionId, name: name.trim(), picks: [...picks] });
     } catch(e) { setError("Couldn't submit — please try again."); console.error(e); }
     finally { setLoading(false); }
   };
 
   const handleReset = () => {
-    setSubmitted(null); setName(""); setPicks([]); setSearch(""); setCategory(null); setMbTag(null);
+    setSubmitted(null); setName(""); setPicks([]); setSearch("");
+    setCategory(null); setMbTag(null); setInstagramConsent(false); setInstagramHandle("");
   };
 
   // Show status screen after submission
@@ -388,11 +432,69 @@ export default function SingerApp() {
 
         <div style={{padding:"20px",maxWidth:560,margin:"0 auto"}}>
 
+          {/* Featured Songs */}
+          {featuredSongs.length > 0 && (
+            <div style={{marginBottom:24}}>
+              <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:12}}>
+                <span style={{fontSize:18}}>⭐</span>
+                <div>
+                  <div style={{fontFamily:"var(--fd)",fontSize:16,color:"var(--gold)",letterSpacing:2,lineHeight:1}}>FEATURED SONGS</div>
+                  <div style={{fontSize:11,color:"rgba(255,255,255,.3)",marginTop:2}}>HHH × Purple Sandwich · July 25th</div>
+                </div>
+              </div>
+              <div style={{display:"flex",flexDirection:"column",gap:6}}>
+                {featuredSongs.map(song => {
+                  const selected = !!picks.find(p => p.id===song.id);
+                  const disabled = !selected && picks.length>=3;
+                  return (
+                    <div key={song.id} className={`song-card${selected?" selected":""}${disabled?" disabled":""}`}
+                      onClick={()=>!disabled&&toggle(song)}
+                      style={{background:selected?"rgba(245,200,66,.12)":"rgba(245,200,66,.04)",borderColor:selected?"var(--gold)":"rgba(245,200,66,.2)"}}>
+                      <div style={{width:24,height:24,borderRadius:"50%",flexShrink:0,border:`2px solid ${selected?"var(--gold)":"rgba(245,200,66,.3)"}`,background:selected?"var(--gold)":"transparent",display:"flex",alignItems:"center",justifyContent:"center",transition:"all .15s"}}>
+                        {selected && <span style={{color:"var(--deep)",fontSize:12,fontWeight:700}}>✓</span>}
+                      </div>
+                      <div style={{flex:1,minWidth:0}}>
+                        <div style={{fontWeight:600,fontSize:14,color:"white"}}>{song.title}</div>
+                        <div style={{color:"rgba(255,255,255,.4)",fontSize:12,marginTop:2}}>{song.artist}</div>
+                      </div>
+                      {song.song_key && <div style={{fontFamily:"monospace",fontSize:11,color:selected?"var(--gold)":"rgba(255,255,255,.3)",flexShrink:0}}>{song.song_key}</div>}
+                    </div>
+                  );
+                })}
+              </div>
+              <div style={{height:1,background:"rgba(245,200,66,.15)",margin:"20px 0"}} />
+            </div>
+          )}
+
           {/* Name */}
           <div style={{marginBottom:16}}>
             <label style={{display:"block",fontFamily:"var(--fd)",fontSize:12,color:"var(--gold-dim)",letterSpacing:3,marginBottom:7}}>YOUR NAME</label>
             <input value={name} onChange={e=>setName(e.target.value)} placeholder="What should we call you?" maxLength={30}
               style={{width:"100%",padding:"14px 16px",background:"rgba(255,255,255,.05)",border:`2px solid ${name.trim()?"rgba(245,200,66,.4)":"rgba(255,255,255,.1)"}`,borderRadius:12,color:"white",fontSize:17,outline:"none",transition:"border-color .2s"}} />
+          </div>
+
+          {/* Instagram consent */}
+          <div style={{marginBottom:16,padding:"14px 16px",background:"rgba(255,255,255,.03)",border:"1px solid rgba(255,255,255,.08)",borderRadius:12}}>
+            <label style={{display:"flex",alignItems:"flex-start",gap:12,cursor:"pointer"}}>
+              <div onClick={()=>setInstagramConsent(!instagramConsent)} style={{
+                width:22,height:22,borderRadius:5,border:`2px solid ${instagramConsent?"var(--gold)":"rgba(255,255,255,.25)"}`,
+                background:instagramConsent?"var(--gold)":"transparent",flexShrink:0,marginTop:1,
+                display:"flex",alignItems:"center",justifyContent:"center",transition:"all .15s",cursor:"pointer"
+              }}>
+                {instagramConsent && <span style={{color:"var(--deep)",fontSize:13,fontWeight:700}}>✓</span>}
+              </div>
+              <span style={{fontSize:13,color:"rgba(255,255,255,.6)",lineHeight:1.5}}>
+                May we post a clip of your performance on our Instagram page?
+                <span style={{color:"rgba(255,255,255,.3)",fontSize:11,display:"block",marginTop:2}}>@purplesandwichpresents</span>
+              </span>
+            </label>
+            {instagramConsent && (
+              <div style={{marginTop:12}}>
+                <input value={instagramHandle} onChange={e=>setInstagramHandle(e.target.value)}
+                  placeholder="Your Instagram handle (optional)"
+                  style={{width:"100%",padding:"10px 14px",background:"rgba(255,255,255,.05)",border:"1.5px solid rgba(245,200,66,.3)",borderRadius:8,color:"white",fontSize:13,outline:"none"}} />
+              </div>
+            )}
           </div>
 
           {/* Picks summary */}

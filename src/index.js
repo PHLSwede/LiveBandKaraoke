@@ -11,7 +11,7 @@ root.render(
   <BrowserRouter basename="/LiveBandKaraoke">
     <Routes>
       <Route path="/sing" element={<SingerApp />} />
-      <Route path="/band" element={<BandApp />} />
+      <Route path="/backstage" element={<BandApp />} />
       <Route path="/stage" element={<StageDisplay />} />
       <Route path="/board" element={<QueueBoard />} />
       <Route path="/" element={<Navigate to="/sing" replace />} />
