@@ -114,6 +114,7 @@ function EventsTab() {
   const [saveError, setSaveError] = useState(null);
   const [expanded, setExpanded] = useState({});
   const [songsByEvent, setSongsByEvent] = useState({});
+  const [missedByEvent, setMissedByEvent] = useState({});
   const [copied, setCopied] = useState(null);
   const [form, setForm] = useState({
     name: "",
@@ -125,13 +126,17 @@ function EventsTab() {
     try {
       const list = await api.events.list();
       setEvents(list || []);
-      // Load played songs for all events
       const allSongs = {};
+      const allMissed = {};
       await Promise.all((list || []).map(async e => {
         const played = await api.queue.played(e.id).catch(() => []);
         allSongs[e.id] = played || [];
+        // Load requests that never made it to queue
+        const requests = await sbFetch(`/requests?event_id=eq.${e.id}&select=id,singer_name,created_at`).catch(() => []);
+        allMissed[e.id] = requests || [];
       }));
       setSongsByEvent(allSongs);
+      setMissedByEvent(allMissed);
     } catch(e) { console.error(e); }
     finally { setLoading(false); }
   };
@@ -174,7 +179,7 @@ function EventsTab() {
     const songs = songsByEvent[event.id] || [];
     const text = [
       event.name,
-      `${event.venue} — ${new Date(event.date).toLocaleDateString("en-US",{weekday:"long",year:"numeric",month:"long",day:"numeric"})}`,
+      `${event.venue} — ${new Date(event.date + 'T12:00:00').toLocaleDateString("en-US",{weekday:"long",year:"numeric",month:"long",day:"numeric"})}`,
       "",
       ...songs.map((s,i) => `${i+1}. ${s.song_title} (${s.song_artist}) — ${s.singer_name}`),
       "",
@@ -198,7 +203,7 @@ function EventsTab() {
             <div>
               <div style={{fontFamily:"var(--fd)",fontSize:20,color:"var(--green)",letterSpacing:2,lineHeight:1}}>LIVE NOW</div>
               <div style={{fontWeight:600,fontSize:16,color:"white",marginTop:3}}>{activeEvent.name}</div>
-              <div style={{color:"rgba(255,255,255,.4)",fontSize:13,marginTop:1}}>{activeEvent.venue} · {new Date(activeEvent.date).toLocaleDateString("en-US",{weekday:"short",month:"short",day:"numeric"})}</div>
+              <div style={{color:"rgba(255,255,255,.4)",fontSize:13,marginTop:1}}>{activeEvent.venue} · {new Date(activeEvent.date + 'T12:00:00').toLocaleDateString("en-US",{weekday:"short",month:"short",day:"numeric"})}</div>
             </div>
           </div>
           <div style={{display:"flex",gap:8,flexShrink:0}}>
@@ -253,7 +258,7 @@ function EventsTab() {
                   {isActive && <div style={{width:7,height:7,borderRadius:"50%",background:"var(--green)",boxShadow:"0 0 5px var(--green)",flexShrink:0}} />}
                   <div>
                     <div style={{fontFamily:"var(--fd)",fontSize:17,color:isActive?"var(--green)":"white",letterSpacing:1.5,lineHeight:1}}>{event.name}</div>
-                    <div style={{color:"rgba(255,255,255,.35)",fontSize:12,marginTop:3}}>{event.venue} · {new Date(event.date).toLocaleDateString("en-US",{weekday:"short",month:"short",day:"numeric",year:"numeric"})}</div>
+                    <div style={{color:"rgba(255,255,255,.35)",fontSize:12,marginTop:3}}>{event.venue} · {new Date(event.date + 'T12:00:00').toLocaleDateString("en-US",{weekday:"short",month:"short",day:"numeric",year:"numeric"})}</div>
                   </div>
                 </div>
                 <div style={{display:"flex",alignItems:"center",gap:14,flexShrink:0}}>
@@ -270,6 +275,7 @@ function EventsTab() {
 
               {isOpen && (
                 <div className="fade-in" style={{borderTop:"1px solid rgba(255,255,255,.06)"}}>
+                  {/* Setlist */}
                   {songs.length === 0 ? (
                     <div style={{padding:"16px",textAlign:"center",color:"rgba(255,255,255,.2)",fontSize:13}}>No songs played yet</div>
                   ) : (
@@ -294,6 +300,25 @@ function EventsTab() {
                       }}>
                         {copied===event.id ? "✓ Copied!" : "📋 Copy setlist"}
                       </button>
+                    </div>
+                  )}
+
+                  {/* Didn't get to sing */}
+                  {(missedByEvent[event.id] || []).length > 0 && (
+                    <div style={{borderTop:"1px solid rgba(255,255,255,.06)",padding:"12px 16px"}}>
+                      <div style={{fontFamily:"var(--fd)",fontSize:11,color:"rgba(255,255,255,.2)",letterSpacing:3,marginBottom:10}}>
+                        DIDN'T GET TO SING ({(missedByEvent[event.id] || []).length})
+                      </div>
+                      <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
+                        {(missedByEvent[event.id] || []).map(r => (
+                          <span key={r.id} style={{
+                            padding:"4px 12px",borderRadius:20,fontSize:12,
+                            background:"rgba(255,255,255,.04)",
+                            border:"1px solid rgba(255,255,255,.08)",
+                            color:"rgba(255,255,255,.35)"
+                          }}>{r.singer_name}</span>
+                        ))}
+                      </div>
                     </div>
                   )}
                 </div>

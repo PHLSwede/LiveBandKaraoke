@@ -2,6 +2,8 @@ import { useState, useEffect } from "react";
 
 const SUPABASE_URL = process.env.REACT_APP_SUPABASE_URL;
 const SUPABASE_KEY = process.env.REACT_APP_SUPABASE_KEY;
+const VENMO_HANDLE = "purple-sandwich"; // TODO: confirm exact Venmo handle
+const BOARD_URL = "/LiveBandKaraoke/board";
 
 async function sbFetch(path, opts = {}) {
   const res = await fetch(`${SUPABASE_URL}/rest/v1${path}`, {
@@ -73,37 +75,65 @@ async function checkStatus(requestId, sessionId) {
 }
 
 // Featured songs for HHH x Purple Sandwich event
-const FEATURED_SONG_TITLES = [
-  "Total Eclipse Of The Heart",
-  "Fuck You",
-  "Hungry Like The Wolf",
-  "Be OK",
-  "I Love Rock And Roll",
-  "Since U Been Gone",
-  "How Bad Do U Want Me",
-  "99 Red Balloons",
-  "Misery Business",
-  "It's The End of the World As We Know It (and I Feel Fine)",
-  "Take Me Or Leave Me",
-  "A Bar Song (Tipsy)",
-  "If it Makes You Happy",
-  "Wannabe",
-  "Isn't She Lovely",
-  "Psycho Killer",
-  "London Calling",
-  "When You Were Young",
-  "The Boys Are Back In Town",
-  "Mary Jane's Last Dance",
-  "A Thousand Miles",
-  "Hash Pipe",
+const FEATURED_SONGS_80S = [
+  { title: "Manic Monday", artist: "The Bangles" },
+  { title: "Hit Me With Your Best Shot", artist: "Pat Benatar" },
+  { title: "Heart of Glass", artist: "Blondie" },
+  { title: "One Way or Another", artist: "Blondie" },
+  { title: "Somebody's Baby", artist: "Jackson Browne" },
+  { title: "Livin' on a Prayer", artist: "Bon Jovi" },
+  { title: "Rock the Casbah", artist: "The Clash" },
+  { title: "Should I Stay or Should I Go", artist: "The Clash" },
+  { title: "Pour Some Sugar on Me", artist: "Def Leppard" },
+  { title: "Whip It", artist: "Devo" },
+  { title: "Hungry Like the Wolf", artist: "Duran Duran" },
+  { title: "Touch of Grey", artist: "Grateful Dead" },
+  { title: "I Wanna Dance With Somebody", artist: "Whitney Houston" },
+  { title: "Rebel Yell", artist: "Billy Idol" },
+  { title: "Super Freak", artist: "Rick James" },
+  { title: "It's Still Rock and Roll to Me", artist: "Billy Joel" },
+  { title: "Don't Stop Believin'", artist: "Journey" },
+  { title: "Walking on Sunshine", artist: "Katrina and the Waves" },
+  { title: "Funkytown", artist: "Lipps, Inc." },
+  { title: "Working for the Weekend", artist: "Loverboy" },
+  { title: "Like a Prayer", artist: "Madonna" },
+  { title: "Material Girl", artist: "Madonna" },
+  { title: "Down Under", artist: "Men at Work" },
+  { title: "Who Could it Be Now", artist: "Men at Work" },
+  { title: "99 Red Balloons", artist: "Nena" },
+  { title: "Crazy Train", artist: "Ozzy Osbourne" },
+  { title: "9 to 5", artist: "Dolly Parton" },
+  { title: "Islands in the Stream", artist: "Parton & Rogers" },
+  { title: "Free Fallin'", artist: "Tom Petty" },
+  { title: "Refugee", artist: "Tom Petty" },
+  { title: "Every Rose Has Its Thorn", artist: "Poison" },
+  { title: "1999", artist: "Prince" },
+  { title: "Raspberry Beret", artist: "Prince" },
+  { title: "Crazy Little Thing Called Love", artist: "Queen" },
+  { title: "End of the World as we Know it", artist: "R.E.M." },
+  { title: "Stand", artist: "R.E.M." },
+  { title: "The One I Love", artist: "R.E.M." },
+  { title: "Bang the Drum All Day", artist: "Todd Rundgren" },
+  { title: "You Can Call Me Al", artist: "Paul Simon" },
+  { title: "Jessie's Girl", artist: "Rick Springfield" },
+  { title: "Born in the USA", artist: "Bruce Springsteen" },
+  { title: "Dancing in the Dark", artist: "Bruce Springsteen" },
+  { title: "Glory Days", artist: "Bruce Springsteen" },
+  { title: "She Works Hard for the Money", artist: "Donna Summer" },
+  { title: "Africa", artist: "Toto" },
+  { title: "Jenny (867-5309)", artist: "Tommy Tutone" },
+  { title: "We're Not Gonna Take It", artist: "Twisted Sister" },
+  { title: "Total Eclipse of the Heart", artist: "Bonnie Tyler" },
 ];
 
 async function fetchFeaturedSongs() {
-  // Fetch songs matching the featured titles
   const songs = await sbFetch("/songs?select=id,title,artist,genre,song_key&order=title.asc") || [];
-  return songs.filter(s => FEATURED_SONG_TITLES.some(t => 
-    s.title?.toLowerCase().trim() === t.toLowerCase().trim()
-  ));
+  return FEATURED_SONGS_80S.map(f => {
+    return songs.find(s =>
+      s.title?.toLowerCase().trim() === f.title.toLowerCase().trim() &&
+      s.artist?.toLowerCase().trim() === f.artist.toLowerCase().trim()
+    );
+  }).filter(Boolean);
 }
 
 // Fetch Bandeoke categories (Drive folder names = genre column)
@@ -233,8 +263,22 @@ function StatusScreen({ requestId, sessionId, initialName, initialPicks, onReset
           ))}
         </div>
 
-        <div style={{fontSize:12,color:"rgba(255,255,255,.2)",marginBottom:24,fontFamily:"var(--fd)",letterSpacing:2}}>
+        <div style={{fontSize:12,color:"rgba(255,255,255,.2)",marginBottom:20,fontFamily:"var(--fd)",letterSpacing:2}}>
           THIS PAGE UPDATES AUTOMATICALLY
+        </div>
+
+        {/* View queue + tip jar */}
+        <div style={{display:"flex",gap:10,marginBottom:20,width:"100%",maxWidth:340}}>
+          <a href={BOARD_URL} style={{
+            flex:1,padding:"12px",background:"rgba(255,255,255,.06)",border:"1px solid rgba(255,255,255,.15)",
+            borderRadius:10,color:"rgba(255,255,255,.7)",fontFamily:"var(--fd)",fontSize:13,letterSpacing:1,
+            textDecoration:"none",textAlign:"center",display:"flex",alignItems:"center",justifyContent:"center",gap:6
+          }}>📺 VIEW QUEUE</a>
+          <a href={`https://venmo.com/${VENMO_HANDLE}`} target="_blank" rel="noopener noreferrer" style={{
+            flex:1,padding:"12px",background:"rgba(61,157,224,.12)",border:"1px solid rgba(61,157,224,.35)",
+            borderRadius:10,color:"#5fb3ea",fontFamily:"var(--fd)",fontSize:13,letterSpacing:1,
+            textDecoration:"none",textAlign:"center",display:"flex",alignItems:"center",justifyContent:"center",gap:6
+          }}>💸 TIP THE BAND</a>
         </div>
 
         <button onClick={onReset} style={{background:"transparent",border:"2px solid rgba(245,200,66,.3)",color:"rgba(245,200,66,.6)",padding:"10px 28px",borderRadius:10,fontFamily:"var(--fd)",fontSize:15,letterSpacing:2}}>
@@ -443,21 +487,22 @@ export default function SingerApp() {
 
           {/* Instagram consent */}
           <div style={{marginBottom:16,padding:"14px 16px",background:"rgba(255,255,255,.03)",border:"1px solid rgba(255,255,255,.08)",borderRadius:12}}>
-            <label style={{display:"flex",alignItems:"flex-start",gap:12,cursor:"pointer"}}>
-              <div onClick={()=>setInstagramConsent(!instagramConsent)} style={{
+            <div style={{display:"flex",alignItems:"flex-start",gap:12,cursor:"pointer"}} onClick={()=>setInstagramConsent(c=>!c)}>
+              <div style={{
                 width:22,height:22,borderRadius:5,border:`2px solid ${instagramConsent?"var(--gold)":"rgba(255,255,255,.25)"}`,
                 background:instagramConsent?"var(--gold)":"transparent",flexShrink:0,marginTop:1,
-                display:"flex",alignItems:"center",justifyContent:"center",transition:"all .15s",cursor:"pointer"
+                display:"flex",alignItems:"center",justifyContent:"center",transition:"all .15s",
+                pointerEvents:"none"
               }}>
                 {instagramConsent && <span style={{color:"var(--deep)",fontSize:13,fontWeight:700}}>✓</span>}
               </div>
-              <span style={{fontSize:13,color:"rgba(255,255,255,.6)",lineHeight:1.5}}>
+              <span style={{fontSize:13,color:"rgba(255,255,255,.6)",lineHeight:1.5,pointerEvents:"none"}}>
                 May we post a clip of your performance on our Instagram?
                 <span style={{color:"rgba(255,255,255,.3)",fontSize:11,display:"block",marginTop:2}}>@purplesandwichpresents</span>
               </span>
-            </label>
+            </div>
             {instagramConsent && (
-              <div style={{marginTop:12}}>
+              <div style={{marginTop:12}} onClick={e=>e.stopPropagation()}>
                 <input value={instagramHandle} onChange={e=>setInstagramHandle(e.target.value)}
                   placeholder="Your Instagram handle (optional)"
                   style={{width:"100%",padding:"10px 14px",background:"rgba(255,255,255,.05)",border:"1.5px solid rgba(245,200,66,.3)",borderRadius:8,color:"white",fontSize:13,outline:"none"}} />
@@ -507,7 +552,7 @@ export default function SingerApp() {
           {/* FEATURED MODE */}
           {browseMode==="featured" && (
             <div>
-              <div style={{fontFamily:"var(--fd)",fontSize:11,color:"rgba(255,255,255,.3)",letterSpacing:3,marginBottom:12}}>HHH × PURPLE SANDWICH · JULY 25TH</div>
+              <div style={{fontFamily:"var(--fd)",fontSize:11,color:"rgba(255,255,255,.3)",letterSpacing:3,marginBottom:12}}>🕺 BACK TO THE '80S · WATKINS DRINKERY</div>
               <div style={{display:"flex",flexDirection:"column",gap:7,marginBottom:16}}>
                 {featuredSongs.length === 0 && (
                   <div style={{textAlign:"center",padding:"28px",color:"rgba(255,255,255,.25)",fontSize:13}}>Loading…</div>
