@@ -119,7 +119,7 @@ const FEATURED_SONGS_80S = [
   { title: "Born in the USA", artist: "Bruce Springsteen" },
   { title: "Dancing in the Dark", artist: "Bruce Springsteen" },
   { title: "Glory Days", artist: "Bruce Springsteen" },
-  { title: "She Works Hard for the Money", artist: "Donna Summer" },
+  { title: "Don't You Want Me", artist: "The Human League" },
   { title: "Africa", artist: "Toto" },
   { title: "Jenny (867-5309)", artist: "Tommy Tutone" },
   { title: "We're Not Gonna Take It", artist: "Twisted Sister" },
