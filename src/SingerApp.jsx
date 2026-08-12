@@ -138,14 +138,23 @@ function normalizeForMatch(str) {
 
 async function fetchFeaturedSongs() {
   const songs = await sbFetch("/songs?select=id,title,artist,genre,song_key&order=title.asc") || [];
-  return FEATURED_SONGS_80S.map(f => {
+  return FEATURED_SONGS_80S.map((f, i) => {
     const fTitle = normalizeForMatch(f.title);
     const fArtist = normalizeForMatch(f.artist);
-    return songs.find(s =>
+    const match = songs.find(s =>
       normalizeForMatch(s.title) === fTitle &&
       normalizeForMatch(s.artist) === fArtist
     );
-  }).filter(Boolean);
+    // Fall back to a static entry so it still shows on the featured list
+    // even if it's not yet synced / linked to a chord sheet
+    return match || {
+      id: `static-80s-${i}`,
+      title: f.title,
+      artist: f.artist,
+      genre: null,
+      song_key: null,
+    };
+  });
 }
 
 // Fetch Bandeoke categories (Drive folder names = genre column)
