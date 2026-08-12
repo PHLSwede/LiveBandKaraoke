@@ -126,12 +126,24 @@ const FEATURED_SONGS_80S = [
   { title: "Total Eclipse of the Heart", artist: "Bonnie Tyler" },
 ];
 
+// Normalize strings for fuzzy matching — strips punctuation, extra spaces, apostrophe variants
+function normalizeForMatch(str) {
+  return (str || "")
+    .toLowerCase()
+    .replace(/['']/g, "'")           // normalize curly apostrophes
+    .replace(/[.,!?]/g, "")          // strip periods, commas, etc
+    .replace(/\s+/g, " ")            // collapse whitespace
+    .trim();
+}
+
 async function fetchFeaturedSongs() {
   const songs = await sbFetch("/songs?select=id,title,artist,genre,song_key&order=title.asc") || [];
   return FEATURED_SONGS_80S.map(f => {
+    const fTitle = normalizeForMatch(f.title);
+    const fArtist = normalizeForMatch(f.artist);
     return songs.find(s =>
-      s.title?.toLowerCase().trim() === f.title.toLowerCase().trim() &&
-      s.artist?.toLowerCase().trim() === f.artist.toLowerCase().trim()
+      normalizeForMatch(s.title) === fTitle &&
+      normalizeForMatch(s.artist) === fArtist
     );
   }).filter(Boolean);
 }
