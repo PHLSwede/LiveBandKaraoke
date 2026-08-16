@@ -3,6 +3,7 @@ import { useState, useEffect, useRef } from "react";
 const SUPABASE_URL = process.env.REACT_APP_SUPABASE_URL;
 const SUPABASE_KEY = process.env.REACT_APP_SUPABASE_KEY;
 const SINGER_URL = "purplesandwich.band/sing";
+const VENMO_URL = "venmo.com/Dante-Lammendola";
 
 async function sbFetch(path, opts = {}) {
   const res = await fetch(`${SUPABASE_URL}/rest/v1${path}`, {
@@ -131,19 +132,35 @@ function QueuePanel({ queue, nowPlaying }) {
 // ─── PANEL: QR CODE ───────────────────────────────────────────────────────────
 function QRPanel({ eventName }) {
   return (
-    <div className="panel" style={{height:"100%",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:"48px",background:`radial-gradient(ellipse at 50% 40%, rgba(45,27,105,.5) 0%, var(--deep) 65%)`}}>
-      <div style={{fontFamily:"var(--fd)",fontSize:18,color:"var(--gold)",letterSpacing:6,marginBottom:28}}>WANT TO SING?</div>
+    <div className="panel" style={{height:"100%",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:"40px",background:`radial-gradient(ellipse at 50% 40%, rgba(45,27,105,.5) 0%, var(--deep) 65%)`}}>
 
-      {/* QR code */}
-      <div className="pulse-gold" style={{
-        background:"rgba(245,200,66,.06)",border:"3px solid var(--gold)",
-        borderRadius:24,padding:28,marginBottom:32
-      }}>
-        <QRCode url={SINGER_URL} size={220} />
+      <div style={{display:"flex",gap:48,alignItems:"flex-start",marginBottom:28}}>
+
+        {/* Request QR */}
+        <div style={{display:"flex",flexDirection:"column",alignItems:"center"}}>
+          <div style={{fontFamily:"var(--fd)",fontSize:15,color:"var(--gold)",letterSpacing:4,marginBottom:16}}>WANT TO SING?</div>
+          <div className="pulse-gold" style={{
+            background:"rgba(245,200,66,.06)",border:"3px solid var(--gold)",
+            borderRadius:20,padding:20
+          }}>
+            <QRCode url={SINGER_URL} size={180} />
+          </div>
+          <div style={{fontFamily:"var(--fd)",fontSize:18,color:"white",letterSpacing:2,textAlign:"center",marginTop:14}}>REQUEST A SONG</div>
+        </div>
+
+        {/* Tip QR */}
+        <div style={{display:"flex",flexDirection:"column",alignItems:"center"}}>
+          <div style={{fontFamily:"var(--fd)",fontSize:15,color:"#5fb3ea",letterSpacing:4,marginBottom:16}}>ENJOYING THE SHOW?</div>
+          <div style={{
+            background:"rgba(61,157,224,.06)",border:"3px solid #5fb3ea",
+            borderRadius:20,padding:20
+          }}>
+            <QRCode url={VENMO_URL} size={180} />
+          </div>
+          <div style={{fontFamily:"var(--fd)",fontSize:18,color:"white",letterSpacing:2,textAlign:"center",marginTop:14}}>TIP THE BAND</div>
+        </div>
+
       </div>
-
-      <div style={{fontFamily:"var(--fd)",fontSize:28,color:"white",letterSpacing:3,textAlign:"center",marginBottom:8}}>SCAN TO REQUEST A SONG</div>
-      <div style={{fontFamily:"var(--fd)",fontSize:15,color:"rgba(255,255,255,.35)",letterSpacing:2,textAlign:"center",marginBottom:32}}>{SINGER_URL}</div>
 
       {/* Branding */}
       <div style={{display:"flex",alignItems:"center",gap:12}}>

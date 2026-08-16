@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 
 const SUPABASE_URL = process.env.REACT_APP_SUPABASE_URL;
 const SUPABASE_KEY = process.env.REACT_APP_SUPABASE_KEY;
-const VENMO_HANDLE = "purple-sandwich"; // TODO: confirm exact Venmo handle
+const VENMO_HANDLE = "Dante-Lammendola";
 const BOARD_URL = "/LiveBandKaraoke/board";
 
 async function sbFetch(path, opts = {}) {
